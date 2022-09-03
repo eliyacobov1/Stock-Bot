@@ -12,7 +12,7 @@ import logging
 from utils import (get_closing_price, get_high_price, get_low_price, minutes_to_secs, filter_by_array)
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, EMA_SMOOTHING,
                     SellStatus, INITIAL_EMA_WINDOW_SIZE, INITIAL_RSI_WINDOW_SIZE, CRITERIA, LOGGER_NAME,
-                    STOP_LOSS_RANGE)
+                    STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER)
 
 RESOLUTIONS = {15}
 
@@ -49,6 +49,7 @@ class StockBot:
         # these attributes will be used when determining whether to sell
         self.stop_loss = None
         self.take_profit = None
+        self.status = SellStatus.NEITHER
 
         self.client = finnhub.Client(api_key=API_KEY)
 
@@ -142,7 +143,7 @@ class StockBot:
         latest = self.get_latest_close_price()
         return latest <= self.stop_loss or latest >= self.take_profit
 
-    def buy(self):
+    def buy(self) -> None:
         closing_prices = get_closing_price(self.candles)
         latest = self.get_latest_close_price()
 
@@ -153,7 +154,14 @@ class StockBot:
 
         self.stop_loss = np.min(stop_loss_range)
         loss_percentage = 1-(self.stop_loss/latest)
-        self.take_profit = None
+        self.take_profit = latest*(loss_percentage*TAKE_PROFIT_MULTIPLIER)
+
+        self.status = SellStatus.BOUGHT
+
+    def sell(self) -> None:
+        if self.status == SellStatus.BOUGHT:
+            self.logger.info("Tried selling before buying a stock")
+            return
 
     def update_time(self, n: int = 15):
         """

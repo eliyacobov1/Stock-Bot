@@ -8,6 +8,7 @@ LOGGER_NAME = "STOCKBOT_LOG"
 
 # sell parameters
 STOP_LOSS_RANGE = 20
+TAKE_PROFIT_MULTIPLIER = 1.5
 
 
 class SellStatus(Enum):
