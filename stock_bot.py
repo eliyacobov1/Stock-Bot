@@ -4,7 +4,6 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-import finnhub
 from pandas_ta import rsi, macd, supertrend
 from functools import lru_cache
 import logging
@@ -13,6 +12,7 @@ from utils import (get_closing_price, get_high_price, get_low_price, minutes_to_
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, EMA_SMOOTHING,
                     SellStatus, INITIAL_EMA_WINDOW_SIZE, INITIAL_RSI_WINDOW_SIZE, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER)
+from stock_client import StockClient
 
 RESOLUTIONS = {15}
 
@@ -34,9 +34,8 @@ def plot_total_gain_percentage(gains):
 
 
 class StockBot:
-    def __init__(self, stock_name: str, start: int, end: int, rsi_win_size: int = 10, ema_win_size: int = 10,
+    def __init__(self, stock_client: StockClient, start: int, end: int, rsi_win_size: int = 10, ema_win_size: int = 10,
                  criteria: Optional[List[str]] = None):
-        self.stock_name = stock_name
         self.ema = None
         self.prices = None
         self.gain_avg = None
@@ -51,9 +50,8 @@ class StockBot:
         self.take_profit = None
         self.status = SellStatus.NEITHER
 
-        self.client = finnhub.Client(api_key=API_KEY)
+        self.client = stock_client
 
-        self.candles = None
         self.set_candle_data()
 
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
@@ -74,12 +72,12 @@ class StockBot:
         self.logger.setLevel(logging.INFO)
 
     def get_latest_close_price(self):
-        closing_price = get_closing_price(self.candles)
+        closing_price = self.client.get_closing_price()
         return closing_price[-1]
 
     @lru_cache(maxsize=1)
     def set_candle_data(self):
-        self.candles = self.client.stock_candles(self.stock_name, self.resolution, self.start_time, self.end_time)
+        self.client.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time)
 
     def set_criteria(self, criteria: Optional[List[str]]) -> None:
         if criteria is None:
@@ -91,20 +89,23 @@ class StockBot:
                 self.criteria.append(c)
 
     def get_rsi_criterion(self):
-        s_close_old = pd.Series(get_closing_price(self.candles))
+        s_close_old = pd.Series(self.client.get_closing_price())
         rsi_results = np.array(rsi(s_close_old))
         return np.where(rsi_results > 50)
 
     def get_supertrend_criterion(self):
         # TODO need to finish implementing this
-        high = get_high_price(data=self.candles)
-        low = get_low_price(data=self.candles)
-        close = get_closing_price(data=self.candles)
+        high = get_high_price(data=self.client.candles)
+        low = get_low_price(data=self.client.candles)
+        close = self.client.get_closing_price()
         supertrend_results = supertrend(high, low, close)
-        return supertrend_results
+
+        indices = np.where(supertrend_results < close)
+
+        return indices
 
     def get_macd_criterion(self):
-        close_prices = get_closing_price(self.candles)
+        close_prices = self.client.get_closing_price()
 
         macd_close = macd(close=close_prices, fast=12, slow=26, signal=9)
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
@@ -123,7 +124,7 @@ class StockBot:
         """
         returns the number of candles that are currently observed
         """
-        return len(get_closing_price(self.candles))
+        return len(self.client.get_closing_price())
 
     def _is_criteria(self) -> np.ndarray:
         indices = np.arange(self.get_num_candles())
@@ -144,7 +145,7 @@ class StockBot:
         return latest <= self.stop_loss or latest >= self.take_profit
 
     def buy(self) -> None:
-        closing_prices = get_closing_price(self.candles)
+        closing_prices = self.client.get_closing_price()
         latest = self.get_latest_close_price()
 
         if len(closing_prices) < STOP_LOSS_RANGE:
@@ -152,16 +153,22 @@ class StockBot:
         else:
             stop_loss_range = closing_prices[:(-1*STOP_LOSS_RANGE)]
 
+        # TODO don't buy if stop loss percentage is >= 4
         self.stop_loss = np.min(stop_loss_range)
         loss_percentage = 1-(self.stop_loss/latest)
-        self.take_profit = latest*(loss_percentage*TAKE_PROFIT_MULTIPLIER)
+        self.take_profit = latest*(loss_percentage * TAKE_PROFIT_MULTIPLIER)
 
         self.status = SellStatus.BOUGHT
+        self.logger.info(f"Bought for the price of {latest}")
 
     def sell(self) -> None:
         if self.status == SellStatus.BOUGHT:
             self.logger.info("Tried selling before buying a stock")
             return
+
+        latest = self.get_latest_close_price()
+        self.status = SellStatus.SOLD
+        self.logger.info(f"Sold for the price of {latest}")
 
     def update_time(self, n: int = 15):
         """
@@ -225,6 +232,9 @@ class StockBot:
 if __name__ == '__main__':
     curr_time = int(time.time())
     period = minutes_to_secs(4000)
-    sb = StockBot(stock_name=DEFAULT_STOCK_NAME, start=curr_time-period, end=curr_time)
+
+    from stock_client import StockClientFinhub
+    client: StockClient = StockClientFinhub(name=DEFAULT_STOCK_NAME)
+
+    sb = StockBot(stock_client=client, start=curr_time-period, end=curr_time)
     res = sb.is_buy()
-    x = 0
