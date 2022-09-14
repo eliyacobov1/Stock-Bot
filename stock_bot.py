@@ -107,7 +107,7 @@ class StockBot:
     def get_macd_criterion(self):
         close_prices = self.client.get_closing_price()
 
-        macd_close = macd(close=close_prices, fast=12, slow=26, signal=9)
+        macd_close = macd(close=pd.Series(close_prices), fast=12, slow=26, signal=9)
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
         signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX])
 
@@ -118,7 +118,7 @@ class StockBot:
 
         indices = np.where((macd_data_diff > 0) & (macd_data < 0) & (macd_data_diff_shifted <= 0))
 
-        return indices + 1
+        return np.array(indices) + 1
 
     def get_num_candles(self):
         """
