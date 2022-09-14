@@ -1,5 +1,5 @@
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -71,9 +71,9 @@ class StockBot:
         self.logger = logging.getLogger('start logging')
         self.logger.setLevel(logging.INFO)
 
-    def get_latest_close_price(self):
+    def get_close_price(self, index=-1):
         closing_price = self.client.get_closing_price()
-        return closing_price[-1]
+        return closing_price[index]
 
     @lru_cache(maxsize=1)
     def set_candle_data(self):
@@ -134,19 +134,20 @@ class StockBot:
             indices = filter_by_array(indices, criterion_indices)
         return indices
 
-    def is_buy(self) -> bool:
+    def is_buy(self, index: int = None) -> bool:
         approved_indices = self._is_criteria()
-        latest_index = self.get_num_candles()-1
+        curr_index = self.get_num_candles()-1 if index is None else index
         # check if latest index which represents the current candle meets the criteria
-        return np.isin([latest_index], approved_indices)[0]
+        return np.isin([curr_index], approved_indices)[0]
 
-    def is_sell(self) -> bool:
-        latest = self.get_latest_close_price()
+    def is_sell(self, index: int = None) -> bool:
+        curr_index = self.get_num_candles() - 1 if index is None else index
+        latest = self.get_close_price(curr_index)
         return latest <= self.stop_loss or latest >= self.take_profit
 
-    def buy(self) -> None:
+    def buy(self, index: int = None) -> int:
         closing_prices = self.client.get_closing_price()
-        latest = self.get_latest_close_price()
+        price = self.get_close_price(index)
 
         if len(closing_prices) < STOP_LOSS_RANGE:
             stop_loss_range = closing_prices
@@ -155,20 +156,47 @@ class StockBot:
 
         # TODO don't buy if stop loss percentage is >= 4
         self.stop_loss = np.min(stop_loss_range)
-        loss_percentage = 1-(self.stop_loss/latest)
-        self.take_profit = latest*(loss_percentage * TAKE_PROFIT_MULTIPLIER)
+        loss_percentage = 1-(self.stop_loss/price)
+        self.take_profit = price*(loss_percentage * TAKE_PROFIT_MULTIPLIER)
 
         self.status = SellStatus.BOUGHT
-        self.logger.info(f"Bought for the price of {latest}")
+        self.logger.info(f"Bought for the price of {price}")
 
-    def sell(self) -> None:
-        if self.status == SellStatus.BOUGHT:
+        return price
+
+    def sell(self, index: int = None) -> int:
+        if self.status != SellStatus.BOUGHT:
             self.logger.info("Tried selling before buying a stock")
-            return
+            return 0
 
-        latest = self.get_latest_close_price()
+        curr_index = self.get_num_candles() - 1 if index is None else index
+        price = self.get_close_price(curr_index)
         self.status = SellStatus.SOLD
-        self.logger.info(f"Sold for the price of {latest}")
+        self.logger.info(f"Sold for the price of {price}")
+
+        return price
+
+    def calc_revenue(self, candle_range: Tuple[int, int] = None):
+        if candle_range:
+            start, end = candle_range
+        else:
+            start, end = 0, self.get_num_candles() - 1
+
+        revenue = 0
+
+        for i in range(start, end):
+            if self.status in (SellStatus.SOLD, SellStatus.NEITHER):  # try to buy
+                condition = self.is_buy(index=i)
+                if condition:
+                    price = self.buy(index=i)
+                    revenue -= price
+            elif self.status == SellStatus.BOUGHT:  # try to sell
+                condition = self.is_sell(index=i)
+                if condition:
+                    price = self.sell(index=i)
+                    revenue += price
+
+        return revenue
 
     def update_time(self, n: int = 15):
         """
@@ -231,10 +259,10 @@ class StockBot:
 
 if __name__ == '__main__':
     curr_time = int(time.time())
-    period = minutes_to_secs(4000)
+    period = minutes_to_secs(60000)
 
     from stock_client import StockClientFinhub
     client: StockClient = StockClientFinhub(name=DEFAULT_STOCK_NAME)
 
     sb = StockBot(stock_client=client, start=curr_time-period, end=curr_time)
-    res = sb.is_buy()
+    res = sb.calc_revenue()
