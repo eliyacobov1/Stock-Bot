@@ -11,7 +11,7 @@ import logging
 from utils import (get_closing_price, get_high_price, get_low_price, minutes_to_secs, filter_by_array)
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, EMA_SMOOTHING,
                     SellStatus, INITIAL_EMA_WINDOW_SIZE, INITIAL_RSI_WINDOW_SIZE, CRITERIA, LOGGER_NAME,
-                    STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER)
+                    STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME)
 from stock_client import StockClient
 
 RESOLUTIONS = {15}
@@ -94,15 +94,15 @@ class StockBot:
         return np.where(rsi_results > 50)
 
     def get_supertrend_criterion(self):
-        # TODO need to finish implementing this
         high = get_high_price(data=self.client.candles)
         low = get_low_price(data=self.client.candles)
         close = self.client.get_closing_price()
-        supertrend_results = supertrend(high, low, close)
+        supertrend_results_df = supertrend(pd.Series(high), pd.Series(low), pd.Series(close))
+        supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
 
         indices = np.where(supertrend_results < close)
 
-        return indices
+        return np.array(indices)
 
     def get_macd_criterion(self):
         close_prices = self.client.get_closing_price()
@@ -117,8 +117,9 @@ class StockBot:
         macd_data = macd_data[1:]
 
         indices = np.where((macd_data_diff > 0) & (macd_data < 0) & (macd_data_diff_shifted <= 0))
+        indices_as_nd = np.array(indices)
 
-        return np.array(indices) + 1
+        return indices_as_nd + 1
 
     def get_num_candles(self):
         """
