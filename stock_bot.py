@@ -48,6 +48,8 @@ class StockBot:
         self.client = stock_client
 
         self.set_candle_data()
+        self.data_changed = True  # indicates whether new candle data was fetched or not
+        self.criteria_indices = None
 
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
         self.criteria_func_data_mapping = {CRITERIA.RSI: self.get_rsi_criterion,
@@ -70,9 +72,10 @@ class StockBot:
         closing_price = self.client.get_closing_price()
         return closing_price[index]
 
-    @lru_cache(maxsize=1)
+    # @lru_cache(maxsize=1)
     def set_candle_data(self):
         self.client.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time)
+        self.data_changed = True
 
     def set_criteria(self, criteria: Optional[List[str]]) -> None:
         if criteria is None:
@@ -130,10 +133,14 @@ class StockBot:
             callback = self.criteria_func_data_mapping[c]
             criterion_indices = callback()
             indices = filter_by_array(indices, criterion_indices)
+
+        self.criteria_indices = indices
+        self.data_changed = False  # criteria are now updated according to the latest change
+
         return indices
 
     def is_buy(self, index: int = None) -> bool:
-        approved_indices = self._is_criteria()
+        approved_indices = self._is_criteria() if self.data_changed else self.criteria_indices
         curr_index = self.get_num_candles()-1 if index is None else index
         # check if latest index which represents the current candle meets the criteria
         return np.isin([curr_index], approved_indices)[0]
