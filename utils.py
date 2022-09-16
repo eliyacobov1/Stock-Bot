@@ -1,17 +1,5 @@
 import numpy as np
-import pandas as pd
-
-
-def get_closing_price(data: pd.DataFrame) -> pd.Series:
-    return data['c']
-
-
-def get_high_price(data: pd.DataFrame) -> pd.Series:
-    return data['h']
-
-
-def get_low_price(data: pd.DataFrame) -> pd.Series:
-    return data['l']
+from datetime import datetime, timezone, timedelta
 
 
 def minutes_to_secs(minutes: int):
@@ -27,3 +15,12 @@ def filter_by_array(arr1: np.ndarray, arr2: np.ndarray):
     """
     res = arr1[np.isin(arr1, arr2)]
     return res
+
+
+def get_curr_utc_2_timestamp() -> int:
+    curr_dt = datetime.now(timezone.utc) + timedelta(hours=2)
+    return int(round(curr_dt.timestamp()))
+
+
+def convert_timestamp_format(ts: int) -> str:
+    return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")

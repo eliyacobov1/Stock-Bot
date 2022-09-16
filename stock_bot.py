@@ -1,4 +1,3 @@
-import time
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -8,7 +7,7 @@ from pandas_ta import rsi, macd, supertrend
 from functools import lru_cache
 import logging
 
-from utils import (get_closing_price, get_high_price, get_low_price, minutes_to_secs, filter_by_array)
+from utils import (minutes_to_secs, filter_by_array, get_curr_utc_2_timestamp)
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, EMA_SMOOTHING,
                     SellStatus, INITIAL_EMA_WINDOW_SIZE, INITIAL_RSI_WINDOW_SIZE, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME)
@@ -17,10 +16,6 @@ from stock_client import StockClient
 RESOLUTIONS = {15}
 
 API_KEY = "c76vsr2ad3iaenbslifg"
-
-
-def add_candle(close_price, status=SellStatus.NEITHER):
-    pass
 
 
 def plot_total_gain_percentage(gains):
@@ -40,7 +35,7 @@ class StockBot:
         self.prices = None
         self.gain_avg = None
         self.loss_avg = None
-        self.resolution = str(DEFAULT_RES)
+        self.resolution = DEFAULT_RES
         self.start_time = start
         self.end_time = end
         self.rsi_window_size, self.ema_window_size = rsi_win_size, ema_win_size
@@ -82,6 +77,8 @@ class StockBot:
     def set_criteria(self, criteria: Optional[List[str]]) -> None:
         if criteria is None:
             self.criteria.append(CRITERIA.RSI)
+            self.criteria.append(CRITERIA.MACD)
+            self.criteria.append(CRITERIA.SUPER_TREND)
             return
         else:
             for name in criteria:
@@ -94,8 +91,8 @@ class StockBot:
         return np.where(rsi_results > 50)
 
     def get_supertrend_criterion(self):
-        high = get_high_price(data=self.client.candles)
-        low = get_low_price(data=self.client.candles)
+        high = self.client.get_high_price()
+        low = self.client.get_low_price()
         close = self.client.get_closing_price()
         supertrend_results_df = supertrend(pd.Series(high), pd.Series(low), pd.Series(close))
         supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
@@ -259,11 +256,11 @@ class StockBot:
 
 
 if __name__ == '__main__':
-    curr_time = int(time.time())
+    curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
     period = minutes_to_secs(60000)
 
-    from stock_client import StockClientFinhub
-    client: StockClient = StockClientFinhub(name=DEFAULT_STOCK_NAME)
+    from stock_client import StockClientYfinance
+    client: StockClient = StockClientYfinance(name=DEFAULT_STOCK_NAME)
 
     sb = StockBot(stock_client=client, start=curr_time-period, end=curr_time)
     res = sb.calc_revenue()
