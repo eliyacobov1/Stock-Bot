@@ -8,7 +8,7 @@ from utils import convert_timestamp_format
 
 
 class StockClient(ABC):
-    __slots__: List[str] = ['name', 'candles', '_client']
+    __slots__: List[str] = ['name', 'candles', '_client', '_res']
 
     @property
     def client(self):
@@ -35,6 +35,10 @@ class StockClient(ABC):
     def get_low_price(self):
         pass
 
+    @abstractmethod
+    def is_day_last_transaction(self, i: int) -> bool:
+        pass
+
 
 class StockClientFinhub(StockClient):
     def __init__(self, name: str):
@@ -56,6 +60,10 @@ class StockClientFinhub(StockClient):
         return self.candles['l']
 
     @staticmethod
+    def is_day_last_transaction(self, i: int) -> bool:
+        pass
+
+    @staticmethod
     def res_to_str(res: TimeRes) -> str:
         if res == TimeRes.MINUTE_5:
             return '5'
@@ -75,6 +83,7 @@ class StockClientYfinance(StockClient):
         super(StockClient, self).__init__()
         self.name = name
         self._client = yf.Ticker(name)
+        self._res = None
 
     def get_closing_price(self) -> pd.Series:
         return self.candles['Close']
@@ -85,6 +94,14 @@ class StockClientYfinance(StockClient):
     def get_low_price(self) -> pd.Series:
         return self.candles['Low']
 
+    def is_day_last_transaction(self, i: int) -> bool:
+        last_transaction_time: str = str()
+        if self._res == TimeRes.MINUTE_5:
+            last_transaction_time = "15:55"
+        elif self._res == TimeRes.MINUTE_15:
+            last_transaction_time = "15:45"
+        return last_transaction_time in str(self.candles.iloc[i].name)
+
     @staticmethod
     def res_to_str(res: TimeRes) -> str:
         if res == TimeRes.MINUTE_5:
@@ -93,6 +110,7 @@ class StockClientYfinance(StockClient):
             return '15m'
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
+        self._res = res
         parsed_res = self.res_to_str(res)
         if start is not None:
             formatted_start = convert_timestamp_format(start)

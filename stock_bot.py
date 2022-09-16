@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 from pandas_ta import rsi, macd, supertrend
-from functools import lru_cache
 import logging
 
 from utils import (minutes_to_secs, filter_by_array, get_curr_utc_2_timestamp)
@@ -60,8 +59,7 @@ class StockBot:
         self.set_criteria(criteria)
 
         # initialize logger
-        logging.basicConfig(filename=LOGGER_NAME,
-                            filemode='a',
+        logging.basicConfig(
                             format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
                             datefmt='%H:%M:%S',
                             level=logging.INFO)
@@ -146,6 +144,8 @@ class StockBot:
         return np.isin([curr_index], approved_indices)[0]
 
     def is_sell(self, index: int = None) -> bool:
+        if self.client.is_day_last_transaction(index):
+            return True
         curr_index = self.get_num_candles() - 1 if index is None else index
         latest = self.get_close_price(curr_index)
         return latest <= self.stop_loss or latest >= self.take_profit
@@ -160,12 +160,13 @@ class StockBot:
             stop_loss_range = closing_prices[:(-1*STOP_LOSS_RANGE)]
 
         # TODO don't buy if stop loss percentage is >= 4
-        self.stop_loss = np.min(stop_loss_range)
-        loss_percentage = 1-(self.stop_loss/price)
-        self.take_profit = price*(loss_percentage * TAKE_PROFIT_MULTIPLIER)
+        local_min = np.min(stop_loss_range)
+        loss_percentage = 1-(local_min/price)+0.05
+        self.stop_loss = price * loss_percentage
+        self.take_profit = price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
 
         self.status = SellStatus.BOUGHT
-        self.logger.info(f"Bought for the price of {price}")
+        self.logger.info(f"Bought for the price of {price}, {self.client.candles.iloc[index].name}")
 
         return price
 
@@ -177,7 +178,7 @@ class StockBot:
         curr_index = self.get_num_candles() - 1 if index is None else index
         price = self.get_close_price(curr_index)
         self.status = SellStatus.SOLD
-        self.logger.info(f"Sold for the price of {price}")
+        self.logger.info(f"Sold for the price of {price}, {self.client.candles.iloc[index].name}")
 
         return price
 
