@@ -59,8 +59,9 @@ class StockBot:
         self.set_criteria(criteria)
 
         # initialize logger
-        logging.basicConfig(
-                            format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+        logging.basicConfig(filename="STOCKBOT_LOG",
+                            filemode='w',
+                            format='%(message)s',
                             datefmt='%H:%M:%S',
                             level=logging.INFO)
         self.logger = logging.getLogger('start logging')
@@ -166,7 +167,7 @@ class StockBot:
         self.take_profit = price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
 
         self.status = SellStatus.BOUGHT
-        self.logger.info(f"Bought for the price of {price}, {self.client.candles.iloc[index].name}")
+        self.logger.info(f"{self.client.get_candle_date(index)}\nBought for the price of {price}")
 
         return price
 
@@ -178,7 +179,7 @@ class StockBot:
         curr_index = self.get_num_candles() - 1 if index is None else index
         price = self.get_close_price(curr_index)
         self.status = SellStatus.SOLD
-        self.logger.info(f"Sold for the price of {price}, {self.client.candles.iloc[index].name}")
+        self.logger.info(f"{self.client.get_candle_date(index)}\nSold for the price of {price}")
 
         return price
 
@@ -196,11 +197,13 @@ class StockBot:
                 if condition:
                     price = self.buy(index=i)
                     revenue -= price
+                    self.logger.info(f"revenue per stock is: {revenue}\n")
             elif self.status == SellStatus.BOUGHT:  # try to sell
                 condition = self.is_sell(index=i)
                 if condition:
-                    price = self.sell(index=i)
+                    price = self.sell(index=i, )
                     revenue += price
+                    self.logger.info(f"revenue per stock is: {revenue}\n")
 
         return revenue
 

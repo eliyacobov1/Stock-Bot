@@ -32,6 +32,10 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
+    def get_candle_date(self, i: int) -> str:
+        pass
+
+    @abstractmethod
     def get_low_price(self):
         pass
 
@@ -56,10 +60,12 @@ class StockClientFinhub(StockClient):
     def get_high_price(self) -> pd.Series:
         return self.candles['h']
 
+    def get_candle_date(self, i: int) -> str:
+        pass
+
     def get_low_price(self) -> pd.Series:
         return self.candles['l']
 
-    @staticmethod
     def is_day_last_transaction(self, i: int) -> bool:
         pass
 
@@ -100,7 +106,10 @@ class StockClientYfinance(StockClient):
             last_transaction_time = "15:55"
         elif self._res == TimeRes.MINUTE_15:
             last_transaction_time = "15:45"
-        return last_transaction_time in str(self.candles.iloc[i].name)
+        return last_transaction_time in self.get_candle_date(i)
+
+    def get_candle_date(self, i: int) -> str:
+        return str(self.candles.iloc[i].name)
 
     @staticmethod
     def res_to_str(res: TimeRes) -> str:
