@@ -9,6 +9,10 @@ def minutes_to_secs(minutes: int):
     return 60*minutes
 
 
+def days_to_secs(days: int):
+    return minutes_to_secs(days*60*24)
+
+
 def filter_by_array(arr1: np.ndarray, arr2: np.ndarray):
     """
     this method returns an array with elements that are contained in both of the sorted arrays arr1, arr2

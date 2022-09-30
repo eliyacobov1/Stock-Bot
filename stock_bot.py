@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from pandas_ta import rsi, macd, supertrend
 import logging
 
-from utils import (minutes_to_secs, filter_by_array, get_curr_utc_2_timestamp)
+from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp)
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, EMA_SMOOTHING,
                     SellStatus, INITIAL_EMA_WINDOW_SIZE, INITIAL_RSI_WINDOW_SIZE, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME)
@@ -271,7 +271,7 @@ class StockBot:
 
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
-    period = minutes_to_secs(60000)
+    period = days_to_secs(7)
 
     from stock_client import StockClientYfinance
     client: StockClient = StockClientYfinance(name=DEFAULT_STOCK_NAME)
