@@ -113,6 +113,8 @@ class StockClientYfinance(StockClient):
 
     @staticmethod
     def res_to_str(res: TimeRes) -> str:
+        if res == TimeRes.MINUTE_1:
+            return '1m'
         if res == TimeRes.MINUTE_5:
             return '5m'
         elif res == TimeRes.MINUTE_15:

@@ -12,8 +12,9 @@ TAKE_PROFIT_MULTIPLIER = 1.5
 
 
 class TimeRes(Enum):
-    MINUTE_5 = 0
-    MINUTE_15 = 1
+    MINUTE_1 = 0
+    MINUTE_5 = 1
+    MINUTE_15 = 2
 
 
 DEFAULT_RES = TimeRes.MINUTE_15
