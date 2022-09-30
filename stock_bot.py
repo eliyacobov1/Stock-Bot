@@ -29,7 +29,7 @@ def plot_total_gain_percentage(gains):
 
 class StockBot:
     def __init__(self, stock_client: StockClient, start: int, end: int, rsi_win_size: int = 10, ema_win_size: int = 10,
-                 criteria: Optional[List[str]] = None):
+                 criteria: Optional[List[str]] = None, log_to_file=False):
         self.ema = None
         self.prices = None
         self.gain_avg = None
@@ -58,12 +58,15 @@ class StockBot:
         self.criteria: List[CRITERIA] = []
         self.set_criteria(criteria)
 
+        logger_options = {"format": '%(message)s',
+                          "datefmt": '%H:%M:%S',
+                          "level": logging.INFO}
+        if log_to_file:
+            logger_options["filename"] = "STOCKBOT_LOG"
+            logger_options["filemode"] = 'w'
+
         # initialize logger
-        logging.basicConfig(filename="STOCKBOT_LOG",
-                            filemode='w',
-                            format='%(message)s',
-                            datefmt='%H:%M:%S',
-                            level=logging.INFO)
+        logging.basicConfig(**logger_options)
         self.logger = logging.getLogger('start logging')
         self.logger.setLevel(logging.INFO)
 
