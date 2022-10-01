@@ -6,9 +6,21 @@ EMA_SMOOTHING, INITIAL_RSI_WINDOW_SIZE, INITIAL_EMA_WINDOW_SIZE = 2, 14, 200
 DEFAULT_STOCK_NAME = "SOXL"
 LOGGER_NAME = "STOCKBOT_LOG"
 
+GAIN, LOSS = "Gain", "Loss"
+
 # sell parameters
 STOP_LOSS_RANGE = 20
 TAKE_PROFIT_MULTIPLIER = 1.5
+
+DEFAULT_CRITERIA_LIST = ["rsi", "macd", "supertrend"]
+
+DEFAULT_RISK_UNIT = 2
+DEFAULT_RISK_LIMIT = 5
+DEFAULT_GROWTH_PERCENT = 1.2
+
+DEFAULT_USE_PYRAMID = True  # set to False if you don't want to use pyramid
+
+DEFAULT_START_CAPITAL = 1000
 
 
 class TimeRes(Enum):
@@ -17,7 +29,7 @@ class TimeRes(Enum):
     MINUTE_15 = 2
 
 
-DEFAULT_RES = TimeRes.MINUTE_15
+DEFAULT_RES = TimeRes.MINUTE_1
 
 
 class SellStatus(Enum):

@@ -1,3 +1,5 @@
+from typing import Union
+
 import numpy as np
 from datetime import datetime, timezone, timedelta
 
@@ -28,3 +30,7 @@ def get_curr_utc_2_timestamp() -> int:
 
 def convert_timestamp_format(ts: int) -> str:
     return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+
+
+def get_percent(n: int, percent: Union[float, int]) -> float:
+    return n * (percent/100)

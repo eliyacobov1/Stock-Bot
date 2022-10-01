@@ -6,10 +6,12 @@ from matplotlib import pyplot as plt
 from pandas_ta import rsi, macd, supertrend
 import logging
 
-from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp)
+from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent)
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, EMA_SMOOTHING,
                     SellStatus, INITIAL_EMA_WINDOW_SIZE, INITIAL_RSI_WINDOW_SIZE, CRITERIA, LOGGER_NAME,
-                    STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME)
+                    STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
+                    DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
+                    DEFAULT_GROWTH_PERCENT, GAIN, LOSS)
 from stock_client import StockClient
 
 RESOLUTIONS = {15}
@@ -29,7 +31,8 @@ def plot_total_gain_percentage(gains):
 
 class StockBot:
     def __init__(self, stock_client: StockClient, start: int, end: int, rsi_win_size: int = 10, ema_win_size: int = 10,
-                 criteria: Optional[List[str]] = None, log_to_file=False):
+                 risk_unit: float = None, risk_limit: float = None, start_capital: float = None, use_pyr: bool = True,
+                 ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None, log_to_file=False):
         self.ema = None
         self.prices = None
         self.gain_avg = None
@@ -38,6 +41,17 @@ class StockBot:
         self.start_time = start
         self.end_time = end
         self.rsi_window_size, self.ema_window_size = rsi_win_size, ema_win_size
+
+        self.risk_unit = self.initial_risk_unit = risk_unit if risk_unit else DEFAULT_RISK_UNIT
+        self.risk_limit = risk_limit if risk_limit else DEFAULT_RISK_LIMIT
+        self.risk_growth = ru_growth if ru_growth else DEFAULT_GROWTH_PERCENT
+
+        self.monitor_revenue = monitor_revenue
+        self.capital = start_capital if start_capital else DEFAULT_START_CAPITAL
+
+        self.latest_trade: Tuple[int, int] = (-1, -1)  # sum paid and number of stock bought on latest buy trade
+
+        self.use_pyramid = use_pyr
 
         # these attributes will be used when determining whether to sell
         self.stop_loss = None
@@ -154,9 +168,9 @@ class StockBot:
         latest = self.get_close_price(curr_index)
         return latest <= self.stop_loss or latest >= self.take_profit
 
-    def buy(self, index: int = None) -> int:
+    def buy(self, index: int = None) -> Tuple[int, int]:
         closing_prices = self.client.get_closing_price()
-        price = self.get_close_price(index)
+        stock_price = self.get_close_price(index)
 
         if len(closing_prices) < STOP_LOSS_RANGE:
             stop_loss_range = closing_prices
@@ -165,14 +179,23 @@ class StockBot:
 
         # TODO don't buy if stop loss percentage is >= 4
         local_min = np.min(stop_loss_range)
-        loss_percentage = 1-(local_min/price)+0.05
-        self.stop_loss = price * loss_percentage
-        self.take_profit = price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
+        loss_percentage = 1-(local_min/stock_price)+0.05
+        self.stop_loss = stock_price * loss_percentage
+        self.take_profit = stock_price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
+
+        if self.use_pyramid:
+            ru_dollars = get_percent(self.capital, self.risk_unit)
+            num_stocks = (ru_dollars / (1-(self.stop_loss/stock_price))) / stock_price  # TODO check this calculation
+            self.latest_trade = (num_stocks * stock_price, num_stocks)
+        else:
+            num_stocks = self.capital / stock_price
+            self.latest_trade = (self.capital, num_stocks)
 
         self.status = SellStatus.BOUGHT
-        self.logger.info(f"{self.client.get_candle_date(index)}\nBought for the price of {price}")
+        self.logger.info(f"Buy date: {self.client.get_candle_date(index)}\n"
+                         f"Buy price: {self.latest_trade[0]}")
 
-        return price
+        return self.latest_trade
 
     def sell(self, index: int = None) -> int:
         if self.status != SellStatus.BOUGHT:
@@ -180,11 +203,18 @@ class StockBot:
             return 0
 
         curr_index = self.get_num_candles() - 1 if index is None else index
-        price = self.get_close_price(curr_index)
+        stock_price = self.get_close_price(curr_index)
+        sell_price = stock_price*self.latest_trade[1]
         self.status = SellStatus.SOLD
-        self.logger.info(f"{self.client.get_candle_date(index)}\nSold for the price of {price}")
 
-        return price
+        if sell_price > self.latest_trade[0]:  # gain
+            self.risk_unit = self.initial_risk_unit
+        else:  # loss
+            self.risk_unit = np.minimum(self.risk_unit*self.risk_growth, self.risk_limit)
+
+        self.logger.info(f"Sale date: {self.client.get_candle_date(index)}\nSale Price: {sell_price}")
+
+        return sell_price
 
     def calc_revenue(self, candle_range: Tuple[int, int] = None):
         if candle_range:
@@ -192,23 +222,21 @@ class StockBot:
         else:
             start, end = 0, self.get_num_candles() - 1
 
-        revenue = 0
-
         for i in range(start, end):
             if self.status in (SellStatus.SOLD, SellStatus.NEITHER):  # try to buy
                 condition = self.is_buy(index=i)
                 if condition:
-                    price = self.buy(index=i)
-                    revenue -= price
-                    self.logger.info(f"revenue per stock is: {revenue}\n")
+                    price, num_stocks = self.buy(index=i)
+                    self.capital -= price
+                    self.logger.info(f"Current capital: {self.capital}\nStocks bought: {num_stocks}")
             elif self.status == SellStatus.BOUGHT:  # try to sell
                 condition = self.is_sell(index=i)
                 if condition:
                     price = self.sell(index=i, )
-                    revenue += price
-                    self.logger.info(f"revenue per stock is: {revenue}\n")
+                    self.capital += price
+                    self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price >= self.latest_trade[0] else LOSS}\n")
 
-        return revenue
+        return self.capital
 
     def update_time(self, n: int = 15):
         """
@@ -276,5 +304,6 @@ if __name__ == '__main__':
     from stock_client import StockClientYfinance
     client: StockClient = StockClientYfinance(name=DEFAULT_STOCK_NAME)
 
-    sb = StockBot(stock_client=client, start=curr_time-period, end=curr_time)
+    sb = StockBot(stock_client=client, start=curr_time-period, end=curr_time, use_pyr=DEFAULT_USE_PYRAMID,
+                  criteria=DEFAULT_CRITERIA_LIST)
     res = sb.calc_revenue()
