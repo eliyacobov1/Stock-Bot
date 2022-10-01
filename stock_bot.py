@@ -7,8 +7,7 @@ from pandas_ta import rsi, macd, supertrend
 import logging
 
 from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent)
-from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, EMA_SMOOTHING,
-                    SellStatus, INITIAL_EMA_WINDOW_SIZE, INITIAL_RSI_WINDOW_SIZE, CRITERIA, LOGGER_NAME,
+from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, GAIN, LOSS)
@@ -245,56 +244,6 @@ class StockBot:
         period = minutes_to_secs(n)
         self.start_time += period
         self.end_time += period
-
-    @staticmethod
-    def calc_shift_percentage(val1, val2):
-        """
-        Calculates the relative percentage between val1 and val2
-        """
-        return abs((val1 / val2) - 1) * 100
-
-    @staticmethod
-    def get_next_avg(curr_avg, val, window_size):
-        """
-        This function returns the weighted average of 'curr_avg' along with the new value 'val'
-         according to the given window size
-        """
-        return (curr_avg * (window_size - 1) + val) / window_size
-
-    def update_ema(self, val):
-        """
-        Calculates and updates the next EMA value according to the given new stock value
-        """
-        coefficient = EMA_SMOOTHING / (1 + self.ema_window_size)
-        self.ema = val * coefficient + self.ema * (1 - coefficient)
-        return self.ema
-
-    def get_initial_rsi(self, initial_stock_values):
-        """
-        Calculates the initial RSI value according to a given starting period window of the stock.
-        :return the initial RSI value, gain average and loss average of the stock
-        """
-        losses, gains, period_size = [], [], len(initial_stock_values)
-        for open_price, close_price in initial_stock_values:
-            diff_percentage = self.calc_shift_percentage(close_price, open_price)
-            if close_price >= open_price:
-                gains.append(diff_percentage)
-            else:
-                losses.append(diff_percentage)
-        self.gain_avg, self.loss_avg = sum(gains) / len(gains), sum(losses) / len(losses)
-        rsi = 100 - (100 / (1 + (self.gain_avg / self.loss_avg)))
-        return rsi
-
-    def update_rsi(self, gain, loss, window_size):
-        """
-        Calculates and updates the next RSI value according to the given new gain and loss
-        """
-        self.gain_avg = self.get_next_avg(self.gain_avg, gain, window_size)
-        self.loss_avg = self.get_next_avg(self.loss_avg, loss, window_size)
-        return self.get_rsi_criterion()
-
-    def main(self):
-        pass
 
 
 if __name__ == '__main__':
