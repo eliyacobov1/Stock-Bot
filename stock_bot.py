@@ -126,12 +126,7 @@ class StockBot:
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
         signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX])
 
-        macd_data_diff = macd_data - signal_data
-        macd_data_diff_shifted = macd_data_diff[:-1]
-        macd_data_diff = macd_data_diff[1:]
-        macd_data = macd_data[1:]
-
-        indices = np.where((macd_data_diff > 0) & (macd_data < 0) & (macd_data_diff_shifted <= 0))
+        indices = np.where((macd_data > signal_data) & (macd_data < 0))
         indices_as_nd = np.array(indices)
 
         return indices_as_nd + 1
@@ -178,8 +173,8 @@ class StockBot:
 
         # TODO don't buy if stop loss percentage is >= 4
         local_min = np.min(stop_loss_range)
-        loss_percentage = 1-(local_min/stock_price)+0.05
-        self.stop_loss = stock_price * loss_percentage
+        loss_percentage = 1-(local_min/stock_price)+0.005
+        self.stop_loss = stock_price * (1-loss_percentage)
         self.take_profit = stock_price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
 
         if self.use_pyramid:
