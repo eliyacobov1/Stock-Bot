@@ -10,7 +10,7 @@ from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
-                    DEFAULT_GROWTH_PERCENT, GAIN, LOSS)
+                    DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS)
 from stock_client import StockClient
 
 RESOLUTIONS = {15}
@@ -29,9 +29,10 @@ def plot_total_gain_percentage(gains):
 
 
 class StockBot:
-    def __init__(self, stock_client: StockClient, start: int, end: int, rsi_win_size: int = 10, ema_win_size: int = 10,
-                 risk_unit: float = None, risk_limit: float = None, start_capital: float = None, use_pyr: bool = True,
-                 ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None, log_to_file=False):
+    def __init__(self, stock_client: StockClient, start: int = None, end: int = None, period: str = None, rsi_win_size: int = 10,
+                 ema_win_size: int = 10, risk_unit: float = None, risk_limit: float = None, start_capital: float = None,
+                 use_pyr: bool = True, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
+                 log_to_file=False):
         self.ema = None
         self.prices = None
         self.gain_avg = None
@@ -39,8 +40,10 @@ class StockBot:
         self.resolution = DEFAULT_RES
         self.start_time = start
         self.end_time = end
+        self.period = period
         self.rsi_window_size, self.ema_window_size = rsi_win_size, ema_win_size
 
+        self.ru_percentage = DEFAULT_RU_PERCENTAGE
         self.risk_unit = self.initial_risk_unit = risk_unit if risk_unit else DEFAULT_RISK_UNIT
         self.risk_limit = risk_limit if risk_limit else DEFAULT_RISK_LIMIT
         self.risk_growth = ru_growth if ru_growth else DEFAULT_GROWTH_PERCENT
@@ -89,7 +92,8 @@ class StockBot:
 
     # @lru_cache(maxsize=1)
     def set_candle_data(self):
-        self.client.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time)
+        if self.period:
+            self.client.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
         self.data_changed = True
 
     def set_criteria(self, criteria: Optional[List[str]]) -> None:
@@ -129,7 +133,7 @@ class StockBot:
         indices = np.where((macd_data > signal_data) & (macd_data < 0))
         indices_as_nd = np.array(indices)
 
-        return indices_as_nd + 1
+        return indices_as_nd
 
     def get_num_candles(self):
         """
@@ -178,7 +182,7 @@ class StockBot:
         self.take_profit = stock_price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
 
         if self.use_pyramid:
-            ru_dollars = get_percent(self.capital, self.risk_unit)
+            ru_dollars = get_percent(self.capital, self.risk_unit*self.ru_percentage)
             num_stocks = (ru_dollars / (1-(self.stop_loss/stock_price))) / stock_price  # TODO check this calculation
             self.latest_trade = (num_stocks * stock_price, num_stocks)
         else:
@@ -243,11 +247,10 @@ class StockBot:
 
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
-    period = days_to_secs(7)
+    period = '60d'
 
     from stock_client import StockClientYfinance
     client: StockClient = StockClientYfinance(name=DEFAULT_STOCK_NAME)
 
-    sb = StockBot(stock_client=client, start=curr_time-period, end=curr_time, use_pyr=DEFAULT_USE_PYRAMID,
-                  criteria=DEFAULT_CRITERIA_LIST)
+    sb = StockBot(stock_client=client, period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
     res = sb.calc_revenue()
