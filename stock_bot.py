@@ -49,7 +49,7 @@ class StockBot:
         self.risk_growth = ru_growth if ru_growth else DEFAULT_GROWTH_PERCENT
 
         self.monitor_revenue = monitor_revenue
-        self.capital = start_capital if start_capital else DEFAULT_START_CAPITAL
+        self.capital = self.initial_capital = start_capital if start_capital else DEFAULT_START_CAPITAL
 
         self.latest_trade: Tuple[int, int] = (-1, -1)  # sum paid and number of stock bought on latest buy trade
 
@@ -63,6 +63,14 @@ class StockBot:
         self.client = stock_client
 
         self.set_candle_data()
+
+        num_candles = self.client.get_num_candles()
+        self.gains = np.zeros(num_candles)
+        self.eod_gains = np.zeros(num_candles)
+        self.losses = np.zeros(num_candles)
+        self.eod_losses = np.zeros(num_candles)
+        self.num_gains = self.num_eod_gains = self.num_losses = self.num_eod_losses = 0
+
         self.data_changed = True  # indicates whether new candle data was fetched or not
         self.criteria_indices = None
 
@@ -173,7 +181,7 @@ class StockBot:
         if len(closing_prices) < STOP_LOSS_RANGE:
             stop_loss_range = closing_prices
         else:
-            stop_loss_range = closing_prices[:(-1*STOP_LOSS_RANGE)]
+            stop_loss_range = closing_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
 
         # TODO don't buy if stop loss percentage is >= 4
         local_min = np.min(stop_loss_range)
@@ -204,11 +212,27 @@ class StockBot:
         stock_price = self.get_close_price(curr_index)
         sell_price = stock_price*self.latest_trade[1]
         self.status = SellStatus.SOLD
+        profit = sell_price - self.latest_trade[0]
+        is_eod = self.client.is_day_last_transaction(index)
 
-        if sell_price > self.latest_trade[0]:  # gain
-            self.risk_unit = self.initial_risk_unit
+        if profit > 0:  # gain
+            if self.use_pyramid:
+                self.risk_unit = self.initial_risk_unit
+            if not is_eod:
+                self.gains[self.num_gains] = profit
+                self.num_gains += 1
+            else:
+                self.eod_gains[self.num_eod_gains] = profit
+                self.num_eod_gains += 1
         else:  # loss
-            self.risk_unit = np.minimum(self.risk_unit*self.risk_growth, self.risk_limit)
+            if self.use_pyramid:
+                self.risk_unit = np.minimum(self.risk_unit*self.risk_growth, self.risk_limit)
+            if not is_eod:
+                self.losses[self.num_losses] = profit
+                self.num_losses += 1
+            else:
+                self.eod_losses[self.num_eod_losses] = profit
+                self.num_eod_losses += 1
 
         self.logger.info(f"Sale date: {self.client.get_candle_date(index)}\nSale Price: {sell_price}")
 
@@ -234,7 +258,16 @@ class StockBot:
                     self.capital += price
                     self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price >= self.latest_trade[0] else LOSS}\n")
 
+        self.log_summary()
         return self.capital
+
+    def log_summary(self):
+        self.logger.info(f"Win percentage: {self.num_gains / (self.num_gains + self.num_losses)}\n"
+                         f"Winning trades: {self.num_gains}\nLosing trades: {self.num_losses}\n"
+                         f"Winning end of day trades: {self.num_eod_gains}\n"
+                         f"Losing end of day trades: {self.num_eod_losses}\n"
+                         f"End of day gain / loss: {self.num_eod_gains / (self.num_eod_gains + self.num_eod_losses)}\n"
+                         f"Total profit: {self.capital-self.initial_capital}\n")
 
     def update_time(self, n: int = 15):
         """
