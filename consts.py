@@ -31,7 +31,16 @@ class TimeRes(Enum):
     MINUTE_15 = 2
 
 
-DEFAULT_RES = TimeRes.MINUTE_1
+def int_to_res(val: int) -> TimeRes:
+    if val == 1:
+        return TimeRes.MINUTE_1
+    elif val == 15:
+        return TimeRes.MINUTE_5
+    else:
+        return TimeRes.MINUTE_15
+
+
+DEFAULT_RES = int_to_res(DEFAULT_CANDLE_SIZE)
 
 
 class SellStatus(Enum):
