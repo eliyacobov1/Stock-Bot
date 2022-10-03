@@ -22,7 +22,7 @@ DEFAULT_USE_PYRAMID = True  # set to False if you don't want to use pyramid
 
 DEFAULT_START_CAPITAL = 1000
 
-DEFAULT_CANDLE_SIZE = 1  # 1, 5 or 15
+DEFAULT_CANDLE_SIZE = 5  # 1, 5 or 15
 
 
 class TimeRes(Enum):
@@ -34,7 +34,7 @@ class TimeRes(Enum):
 def int_to_res(val: int) -> TimeRes:
     if val == 1:
         return TimeRes.MINUTE_1
-    elif val == 15:
+    elif val == 5:
         return TimeRes.MINUTE_5
     else:
         return TimeRes.MINUTE_15
