@@ -43,6 +43,10 @@ class StockClient(ABC):
     def is_day_last_transaction(self, i: int) -> bool:
         pass
 
+    @abstractmethod
+    def get_num_candles(self) -> int:
+        pass
+
 
 class StockClientFinhub(StockClient):
     def __init__(self, name: str):
@@ -59,6 +63,9 @@ class StockClientFinhub(StockClient):
 
     def get_high_price(self) -> pd.Series:
         return self.candles['h']
+
+    def get_num_candles(self) -> int:
+        return self.candles.shape[0]
 
     def get_candle_date(self, i: int) -> str:
         pass
@@ -106,6 +113,8 @@ class StockClientYfinance(StockClient):
             last_transaction_time = "15:55"
         elif self._res == TimeRes.MINUTE_15:
             last_transaction_time = "15:45"
+        elif self._res == TimeRes.MINUTE_1:
+            last_transaction_time = "15:59"
         return last_transaction_time in self.get_candle_date(i)
 
     def get_candle_date(self, i: int) -> str:
@@ -119,6 +128,9 @@ class StockClientYfinance(StockClient):
             return '5m'
         elif res == TimeRes.MINUTE_15:
             return '15m'
+
+    def get_num_candles(self) -> int:
+        return self.candles.shape[0]
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
         self._res = res
