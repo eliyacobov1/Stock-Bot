@@ -183,7 +183,7 @@ class StockBot:
         else:
             stop_loss_range = closing_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
 
-        # TODO don't buy if stop loss percentage is >= 4
+        # TODO don't buy if stop loss percentage is >= X, put in LS
         local_min = np.min(stop_loss_range)
         loss_percentage = 1-(local_min/stock_price)+0.005
         self.stop_loss = stock_price * (1-loss_percentage)
@@ -212,7 +212,7 @@ class StockBot:
         stock_price = self.get_close_price(curr_index)
         sell_price = stock_price*self.latest_trade[1]
         self.status = SellStatus.SOLD
-        profit = sell_price - self.latest_trade[0]
+        profit = (sell_price / self.latest_trade[0]) - 1
         is_eod = self.client.is_day_last_transaction(index)
 
         if profit > 0:  # gain
@@ -228,10 +228,10 @@ class StockBot:
             if self.use_pyramid:
                 self.risk_unit = np.minimum(self.risk_unit*self.risk_growth, self.risk_limit)
             if not is_eod:
-                self.losses[self.num_losses] = profit
+                self.losses[self.num_losses] = -profit
                 self.num_losses += 1
             else:
-                self.eod_losses[self.num_eod_losses] = profit
+                self.eod_losses[self.num_eod_losses] = -profit
                 self.num_eod_losses += 1
 
         self.logger.info(f"Sale date: {self.client.get_candle_date(index)}\nSale Price: {sell_price}")
@@ -267,6 +267,8 @@ class StockBot:
                          f"Winning end of day trades: {self.num_eod_gains}\n"
                          f"Losing end of day trades: {self.num_eod_losses}\n"
                          f"End of day gain / loss: {self.num_eod_gains / (self.num_eod_gains + self.num_eod_losses)}\n"
+                         f"Risk / Chance: "
+                         f"{np.average(self.gains[:self.num_gains]) / np.average(self.losses[:self.num_losses])}\n"
                          f"Total profit: {self.capital-self.initial_capital}\n")
 
     def update_time(self, n: int = 15):
