@@ -3,14 +3,14 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from pandas_ta import rsi, macd, supertrend
+from pandas_ta import rsi, macd, supertrend, ema
 import logging
 
 from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent)
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
-                    DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS)
+                    DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH)
 from stock_client import StockClient
 
 RESOLUTIONS = {15}
@@ -77,7 +77,10 @@ class StockBot:
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
         self.criteria_func_data_mapping = {CRITERIA.RSI: self.get_rsi_criterion,
                                            CRITERIA.SUPER_TREND: self.get_supertrend_criterion,
-                                           CRITERIA.MACD: self.get_macd_criterion}
+                                           CRITERIA.MACD: self.get_macd_criterion,
+                                           CRITERIA.INSIDE_BAR: self.get_inside_bar_criterion,
+                                           CRITERIA.REVERSAL_BAR: self.get_inside_bar_criterion}
+        self.ema = None
 
         self.criteria: List[CRITERIA] = []
         self.set_criteria(criteria)
@@ -142,6 +145,41 @@ class StockBot:
         indices_as_nd = np.array(indices)
 
         return indices_as_nd
+
+    def get_ema(self):
+        self.ema = ema(self.client.get_closing_price(), EMA_LENGTH)
+        return self.ema
+
+    def get_inside_bar_criterion(self):
+        close_prices = self.client.get_closing_price()
+        open_prices = self.client.get_opening_price()
+        ema = self.ema if self.ema is not None else self.get_ema()
+
+        positive_candles = close_prices[:-1] - open_prices[:-1]
+        close_price_diff = np.diff(close_prices)
+        # 1st candle positive + 2nd candle in 1st candle price range [open, close]
+        cond_1 = np.where((positive_candles > 0) & (close_price_diff < 0) & (np.diff(open_prices) > 0))[0] + 1
+        # 3rd candle close bigger than both 1st candle close and ema
+        cond_2 = np.where((close_prices < np.roll(close_prices, -2)) & (np.roll(close_prices, -2) > np.roll(ema, -2)))[0] + 1
+
+        indices = np.intersect1d(cond_1, cond_2)
+
+        return indices
+
+    def get_reversal_bar_criterion(self):
+        close_prices = self.client.get_closing_price()
+        high_prices = self.client.get_high_price()
+        low_prices = self.client.get_low_price()
+        ema = self.ema if self.ema is not None else self.get_ema()
+
+        # 1st candle high+low bigger than 2nd candle high+low
+        cond_1 = np.where((np.diff(high_prices) < 0) & (np.diff(low_prices) < 0))[0] + 1
+        # 3rd candle close bigger than both 1st candle high and ema
+        cond_2 = np.where((high_prices < np.roll(close_prices, -2)) & (np.roll(close_prices, -2) > np.roll(ema, -2)))[0] + 1
+
+        indices = np.intersect1d(cond_1, cond_2)
+
+        return indices
 
     def get_num_candles(self):
         """
