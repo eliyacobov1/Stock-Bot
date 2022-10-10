@@ -28,6 +28,10 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
+    def get_opening_price(self) -> pd.Series:
+        pass
+
+    @abstractmethod
     def get_high_price(self):
         pass
 
@@ -60,6 +64,9 @@ class StockClientFinhub(StockClient):
 
     def get_closing_price(self) -> pd.Series:
         return self.candles['c']
+
+    def get_opening_price(self) -> pd.Series:
+        return self.candles['o']
 
     def get_high_price(self) -> pd.Series:
         return self.candles['h']
@@ -100,6 +107,9 @@ class StockClientYfinance(StockClient):
 
     def get_closing_price(self) -> pd.Series:
         return self.candles['Close']
+
+    def get_opening_price(self) -> pd.Series:
+        return self.candles['Open']
 
     def get_high_price(self) -> pd.Series:
         return self.candles['High']
