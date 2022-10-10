@@ -153,12 +153,14 @@ class StockBot:
     def get_inside_bar_criterion(self):
         close_prices = self.client.get_closing_price()
         open_prices = self.client.get_opening_price()
+        high_prices = self.client.get_high_price()
+        low_prices = self.client.get_low_price()
         ema = self.ema if self.ema is not None else self.get_ema()
 
         positive_candles = close_prices[:-1] - open_prices[:-1]
-        close_price_diff = np.diff(close_prices)
+        high_price_diff = np.diff(high_prices)
         # 1st candle positive + 2nd candle in 1st candle price range [open, close]
-        cond_1 = np.where((positive_candles > 0) & (close_price_diff < 0) & (np.diff(open_prices) > 0))[0] + 1
+        cond_1 = np.where((positive_candles > 0) & (high_price_diff < 0) & (np.diff(low_prices) > 0))[0] + 1
         # 3rd candle close bigger than both 1st candle close and ema
         cond_2 = np.where((close_prices < np.roll(close_prices, -2)) & (np.roll(close_prices, -2) > np.roll(ema, -2)))[0] + 1
 
@@ -223,7 +225,7 @@ class StockBot:
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
         local_min = np.min(stop_loss_range)
-        loss_percentage = 1-(local_min/stock_price)+0.005
+        loss_percentage = 1-(local_min/stock_price)-0.005  # problematic point
         self.stop_loss = stock_price * (1-loss_percentage)
         self.take_profit = stock_price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
 
