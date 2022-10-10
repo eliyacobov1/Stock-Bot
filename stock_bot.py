@@ -229,7 +229,8 @@ class StockBot:
 
         if self.use_pyramid:
             ru_dollars = get_percent(self.capital, self.risk_unit*self.ru_percentage)
-            num_stocks = (ru_dollars / (1-(self.stop_loss/stock_price))) / stock_price  # TODO check this calculation
+            num_stocks = np.floor(np.minimum((ru_dollars / (1-(self.stop_loss/stock_price))) / stock_price,
+                                  self.capital / stock_price))  # TODO check this calculation
             self.latest_trade = (num_stocks * stock_price, num_stocks)
         else:
             num_stocks = self.capital / stock_price
