@@ -289,7 +289,7 @@ class StockBot:
                 if condition:
                     price, num_stocks = self.buy(index=i)
                     self.capital -= price
-                    self.logger.info(f"Current capital: {self.capital}\nStocks bought: {num_stocks}")
+                    self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}")
             elif self.status == SellStatus.BOUGHT:  # try to sell
                 condition = self.is_sell(index=i)
                 if condition:
