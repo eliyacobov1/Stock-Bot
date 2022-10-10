@@ -10,7 +10,7 @@ from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_
 from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
-                    DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH)
+                    DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN)
 from stock_client import StockClient
 
 RESOLUTIONS = {15}
@@ -79,7 +79,7 @@ class StockBot:
                                            CRITERIA.SUPER_TREND: self.get_supertrend_criterion,
                                            CRITERIA.MACD: self.get_macd_criterion,
                                            CRITERIA.INSIDE_BAR: self.get_inside_bar_criterion,
-                                           CRITERIA.REVERSAL_BAR: self.get_inside_bar_criterion}
+                                           CRITERIA.REVERSAL_BAR: self.get_reversal_bar_criterion}
         self.ema = None
 
         self.criteria: List[CRITERIA] = []
@@ -164,7 +164,9 @@ class StockBot:
         # 3rd candle close bigger than both 1st candle close and ema
         cond_2 = np.where((close_prices < np.roll(close_prices, -2)) & (np.roll(close_prices, -2) > np.roll(ema, -2)))[0] + 1
 
-        indices = np.intersect1d(cond_1, cond_2)
+        # candle 1 stop loss
+
+        indices = np.intersect1d(cond_1, cond_2) + 2
 
         return indices
 
@@ -178,8 +180,9 @@ class StockBot:
         cond_1 = np.where((np.diff(high_prices) < 0) & (np.diff(low_prices) < 0))[0] + 1
         # 3rd candle close bigger than both 1st candle high and ema
         cond_2 = np.where((high_prices < np.roll(close_prices, -2)) & (np.roll(close_prices, -2) > np.roll(ema, -2)))[0] + 1
+        cond_3 = np.where((low_prices < np.roll(low_prices, -1)))
 
-        indices = np.intersect1d(cond_1, cond_2)
+        indices = np.intersect1d(cond_1, np.intersect1d(cond_2, cond_3)) + 2
 
         return indices
 
@@ -189,12 +192,19 @@ class StockBot:
         """
         return len(self.client.get_closing_price())
 
-    def _is_criteria(self) -> np.ndarray:
-        indices = np.arange(self.get_num_candles())
+    def _is_criteria(self, cond_operation='&') -> np.ndarray:
+        """
+        :param cond_operation: '&' or '|'. Indicates the operation that will be performed on the given criteria.
+        """
+        indices = np.arange(self.get_num_candles()) if cond_operation == '&' else np.empty(0)
         for c in self.criteria:
             callback = self.criteria_func_data_mapping[c]
             criterion_indices = callback()
-            indices = filter_by_array(indices, criterion_indices)
+            if cond_operation == '&':
+                indices = filter_by_array(indices, criterion_indices)
+            else:
+                criteria_union = np.concatenate((indices, criterion_indices))
+                indices = np.unique(criteria_union)
 
         self.criteria_indices = indices
         self.data_changed = False  # criteria are now updated according to the latest change
@@ -202,7 +212,8 @@ class StockBot:
         return indices
 
     def is_buy(self, index: int = None) -> bool:
-        approved_indices = self._is_criteria() if self.data_changed else self.criteria_indices
+        op = '|' if self.is_bar_strategy() else '&'
+        approved_indices = self._is_criteria(cond_operation=op) if self.data_changed else self.criteria_indices
         curr_index = self.get_num_candles()-1 if index is None else index
         # check if latest index which represents the current candle meets the criteria
         return np.isin([curr_index], approved_indices)[0]
@@ -214,25 +225,28 @@ class StockBot:
         latest = self.get_close_price(curr_index)
         return latest <= self.stop_loss or latest >= self.take_profit
 
-    def buy(self, index: int = None) -> Tuple[int, int]:
+    def buy(self, index: int = None, sl_min_rel_pos=None) -> Tuple[int, int]:
         closing_prices = self.client.get_closing_price()
         stock_price = self.get_close_price(index)
 
-        if len(closing_prices) < STOP_LOSS_RANGE:
-            stop_loss_range = closing_prices
+        if sl_min_rel_pos is None:
+            if len(closing_prices) < STOP_LOSS_RANGE:
+                stop_loss_range = closing_prices
+            else:
+                stop_loss_range = closing_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
+            local_min = np.min(stop_loss_range)
         else:
-            stop_loss_range = closing_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
+            local_min = self.get_close_price(index+sl_min_rel_pos)
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
-        local_min = np.min(stop_loss_range)
-        loss_percentage = 1-(local_min/stock_price)-0.005  # problematic point
+        loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
         self.stop_loss = stock_price * (1-loss_percentage)
         self.take_profit = stock_price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
 
         if self.use_pyramid:
             ru_dollars = get_percent(self.capital, self.risk_unit*self.ru_percentage)
-            num_stocks = np.floor(np.minimum((ru_dollars / (1-(self.stop_loss/stock_price))) / stock_price,
-                                  self.capital / stock_price))  # TODO check this calculation
+            num_stocks = np.floor(np.minimum((ru_dollars / (1-(self.stop_loss/stock_price)) / stock_price),
+                                  self.capital / stock_price))
             self.latest_trade = (num_stocks * stock_price, num_stocks)
         else:
             num_stocks = self.capital / stock_price
@@ -279,6 +293,11 @@ class StockBot:
 
         return sell_price
 
+    def is_bar_strategy(self):
+        return CRITERIA.REVERSAL_BAR in self.criteria and\
+               CRITERIA.INSIDE_BAR in self.criteria and\
+               len(self.criteria) == 2
+
     def calc_revenue(self, candle_range: Tuple[int, int] = None):
         if candle_range:
             start, end = candle_range
@@ -289,7 +308,7 @@ class StockBot:
             if self.status in (SellStatus.SOLD, SellStatus.NEITHER):  # try to buy
                 condition = self.is_buy(index=i)
                 if condition:
-                    price, num_stocks = self.buy(index=i)
+                    price, num_stocks = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None)
                     self.capital -= price
                     self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}")
             elif self.status == SellStatus.BOUGHT:  # try to sell

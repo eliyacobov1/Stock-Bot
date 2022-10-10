@@ -9,6 +9,7 @@ GAIN, LOSS = "Gain", "Loss"
 
 # sell parameters
 STOP_LOSS_RANGE = 20
+STOP_LOSS_PERCENTAGE_MARGIN = 0.0035
 TAKE_PROFIT_MULTIPLIER = 1.5
 
 DEFAULT_CRITERIA_LIST = ["rsi", "macd", "supertrend"]
@@ -23,6 +24,8 @@ DEFAULT_USE_PYRAMID = True  # set to False if you don't want to use pyramid
 DEFAULT_START_CAPITAL = 1000
 
 DEFAULT_CANDLE_SIZE = 5  # 1, 5 or 15
+
+EMA_LENGTH = 200
 
 
 class TimeRes(Enum):
@@ -53,6 +56,8 @@ class CRITERIA(Enum):
     MACD = 1
     RSI = 2
     SUPER_TREND = 3
+    INSIDE_BAR = 4
+    REVERSAL_BAR = 5
 
     @staticmethod
     def factory(name: str):
@@ -63,5 +68,9 @@ class CRITERIA(Enum):
             return CRITERIA.MACD
         elif normalized_name == "supertrend":
             return CRITERIA.SUPER_TREND
+        elif normalized_name == "insidebar":
+            return CRITERIA.INSIDE_BAR
+        elif normalized_name == "reversalbar":
+            return CRITERIA.REVERSAL_BAR
         else:  # TODO create and raise custom exception
             pass
