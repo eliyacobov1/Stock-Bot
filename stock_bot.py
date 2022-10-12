@@ -34,7 +34,6 @@ class StockBot:
                  use_pyr: bool = True, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
                  log_to_file=False):
         self.ema = None
-        self.prices = None
         self.gain_avg = None
         self.loss_avg = None
         self.resolution = DEFAULT_RES
@@ -65,6 +64,8 @@ class StockBot:
         self.set_candle_data()
 
         num_candles = self.client.get_num_candles()
+        self.capital_history = np.zeros(num_candles)
+        self.capital_history[0] = self.capital
         self.gains = np.zeros(num_candles)
         self.eod_gains = np.zeros(num_candles)
         self.losses = np.zeros(num_candles)
@@ -225,6 +226,9 @@ class StockBot:
         latest = self.get_close_price(curr_index)
         return latest <= self.stop_loss or latest >= self.take_profit
 
+    def get_num_trades(self):
+        return self.num_gains + self.num_eod_gains + self.num_losses + self.num_eod_losses
+
     def buy(self, index: int = None, sl_min_rel_pos=None) -> Tuple[int, int]:
         closing_prices = self.client.get_closing_price()
         stock_price = self.get_close_price(index)
@@ -252,6 +256,7 @@ class StockBot:
             num_stocks = self.capital / stock_price
             self.latest_trade = (self.capital, num_stocks)
 
+        self.capital -= self.latest_trade[0]
         self.status = SellStatus.BOUGHT
         self.logger.info(f"Buy date: {self.client.get_candle_date(index)}\n"
                          f"Buy price: {self.latest_trade[0]}")
@@ -289,6 +294,8 @@ class StockBot:
                 self.eod_losses[self.num_eod_losses] = -profit
                 self.num_eod_losses += 1
 
+        self.capital += sell_price
+        self.capital_history[self.get_num_trades()] = self.capital
         self.logger.info(f"Sale date: {self.client.get_candle_date(index)}\nSale Price: {sell_price}")
 
         return sell_price
@@ -309,13 +316,11 @@ class StockBot:
                 condition = self.is_buy(index=i)
                 if condition:
                     price, num_stocks = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None)
-                    self.capital -= price
                     self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}")
             elif self.status == SellStatus.BOUGHT:  # try to sell
                 condition = self.is_sell(index=i)
                 if condition:
                     price = self.sell(index=i, )
-                    self.capital += price
                     self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price >= self.latest_trade[0] else LOSS}\n")
 
         self.log_summary()
