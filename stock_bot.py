@@ -14,8 +14,6 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE)
 from stock_client import StockClient
 
-RESOLUTIONS = {15}
-
 API_KEY = "c76vsr2ad3iaenbslifg"
 
 
@@ -358,6 +356,35 @@ class StockBot:
         period = minutes_to_secs(n)
         self.start_time += period
         self.end_time += period
+
+
+def plot_capital_history(sb: StockBot, vals, path: str = None):
+    capital_dic_array = {-i: -1 for i in range(4)}
+
+    for val in vals:
+        sb.reset()
+        sb.set_tp_multiplier(val)
+        sb.calc_revenue()
+        res = sb.capital_history[:sb.get_num_trades()]
+        max_val = np.max(res)
+        curr_min = min(capital_dic_array.values())
+        if max_val > curr_min:
+            for key, _ in capital_dic_array.items():
+                if _ == curr_min:
+                    capital_dic_array.pop(key)
+                    break
+            capital_dic_array[val] = max_val
+
+    for val in capital_dic_array:
+        print(val)
+
+
+def plot_capital(sb: StockBot):
+    plt.plot(sb.capital_history[:sb.get_num_trades()], label=f"take profit multiplier {sb.take_profit_multiplier}")
+    plt.xlabel('no. of trades')
+    plt.ylabel('capital')
+    plt.legend()
+    plt.show()
 
 
 if __name__ == '__main__':
