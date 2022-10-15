@@ -11,7 +11,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
-                    SHORT_STOCK_NAME)
+                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE)
 from stock_client import StockClient
 
 RESOLUTIONS = {15}
@@ -33,7 +33,7 @@ class StockBot:
     def __init__(self, stock_client: StockClient, start: int = None, end: int = None, period: str = None, rsi_win_size: int = 10,
                  ema_win_size: int = 10, risk_unit: float = None, risk_limit: float = None, start_capital: float = None,
                  use_pyr: bool = True, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
-                 log_to_file=False):
+                 log_to_file=False, tp_multiplier=TAKE_PROFIT_MULTIPLIER, sl_bound=STOP_LOSS_LOWER_BOUND):
         self.ema = None
         self.gain_avg = None
         self.loss_avg = None
@@ -43,7 +43,8 @@ class StockBot:
         self.period = period
         self.rsi_window_size, self.ema_window_size = rsi_win_size, ema_win_size
 
-        self.take_profit_multiplier = TAKE_PROFIT_MULTIPLIER
+        self.take_profit_multiplier = tp_multiplier
+        self.stop_loss_bound = sl_bound
 
         self.ru_percentage = DEFAULT_RU_PERCENTAGE
         self.risk_unit = self.initial_risk_unit = risk_unit if risk_unit else DEFAULT_RISK_UNIT
@@ -255,6 +256,8 @@ class StockBot:
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
+        if loss_percentage > self.stop_loss_bound:
+            return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
         self.stop_loss = stock_price * (1-loss_percentage)
         self.take_profit = stock_price*((loss_percentage * self.take_profit_multiplier)+1)
 
@@ -327,7 +330,8 @@ class StockBot:
                 condition = self.is_buy(index=i)
                 if condition:
                     price, num_stocks = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None)
-                    self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}")
+                    if price != -1:  # in case trade was not complete
+                        self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}")
             elif self.status == SellStatus.BOUGHT:  # try to sell
                 condition = self.is_sell(index=i)
                 if condition:
