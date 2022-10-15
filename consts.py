@@ -2,7 +2,8 @@ from enum import Enum
 
 MACD_INDEX, MACD_SIGNAL_INDEX = 0, 2
 SUPERTREND_COL_NAME = 'SUPERT_7_3.0'
-DEFAULT_STOCK_NAME = "SOXL"
+LONG_STOCK_NAME = "SOXL"
+SHORT_STOCK_NAME = "SOXS"
 LOGGER_NAME = "STOCKBOT_LOG"
 
 GAIN, LOSS = "Gain", "Loss"
@@ -10,9 +11,13 @@ GAIN, LOSS = "Gain", "Loss"
 # sell parameters
 STOP_LOSS_RANGE = 20
 STOP_LOSS_PERCENTAGE_MARGIN = 0.0035
-TAKE_PROFIT_MULTIPLIER = 1.5
+TAKE_PROFIT_MULTIPLIER = 0.8
 
-DEFAULT_CRITERIA_LIST = ["rsi", "macd", "supertrend"]
+# TODO support multiple stocks
+
+STRATEGY_1 = ["rsi", "supertrend", "macd"]
+STRATEGY_2 = ["insidebar", "reversalbar"]
+DEFAULT_CRITERIA_LIST = STRATEGY_2
 
 DEFAULT_RU_PERCENTAGE = 2
 DEFAULT_RISK_UNIT = 1

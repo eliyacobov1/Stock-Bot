@@ -7,10 +7,11 @@ from pandas_ta import rsi, macd, supertrend, ema
 import logging
 
 from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent)
-from consts import (DEFAULT_RES, DEFAULT_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
+from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
-                    DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN)
+                    DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
+                    SHORT_STOCK_NAME)
 from stock_client import StockClient
 
 RESOLUTIONS = {15}
@@ -41,6 +42,8 @@ class StockBot:
         self.end_time = end
         self.period = period
         self.rsi_window_size, self.ema_window_size = rsi_win_size, ema_win_size
+
+        self.take_profit_multiplier = TAKE_PROFIT_MULTIPLIER
 
         self.ru_percentage = DEFAULT_RU_PERCENTAGE
         self.risk_unit = self.initial_risk_unit = risk_unit if risk_unit else DEFAULT_RISK_UNIT
@@ -101,6 +104,14 @@ class StockBot:
     def get_close_price(self, index=-1):
         closing_price = self.client.get_closing_price()
         return closing_price[index]
+
+    def set_tp_multiplier(self, val: float):
+        self.take_profit_multiplier = val
+
+    def reset(self):
+        self.num_gains = self.num_eod_gains = self.num_losses = self.num_eod_losses = 0
+        self.status = SellStatus.NEITHER
+        self.capital = self.initial_capital
 
     # @lru_cache(maxsize=1)
     def set_candle_data(self):
@@ -245,7 +256,7 @@ class StockBot:
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
         self.stop_loss = stock_price * (1-loss_percentage)
-        self.take_profit = stock_price*((loss_percentage * TAKE_PROFIT_MULTIPLIER)+1)
+        self.take_profit = stock_price*((loss_percentage * self.take_profit_multiplier)+1)
 
         if self.use_pyramid:
             ru_dollars = get_percent(self.capital, self.risk_unit*self.ru_percentage)
@@ -350,7 +361,7 @@ if __name__ == '__main__':
     period = '60d'
 
     from stock_client import StockClientYfinance
-    client: StockClient = StockClientYfinance(name=DEFAULT_STOCK_NAME)
+    client: StockClient = StockClientYfinance(name=LONG_STOCK_NAME)
 
     sb = StockBot(stock_client=client, period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
     res = sb.calc_revenue()
