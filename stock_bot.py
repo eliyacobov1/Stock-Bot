@@ -11,7 +11,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
-                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE)
+                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -252,6 +252,9 @@ class StockBot:
         else:
             local_min = self.get_close_price(index+sl_min_rel_pos)
 
+        if local_min > stock_price:  # in case of inconsistent data
+            return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
+
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
         if loss_percentage > self.stop_loss_bound:
@@ -345,6 +348,9 @@ class StockBot:
                          f"Winning end of day trades: {self.num_eod_gains}\n"
                          f"Losing end of day trades: {self.num_eod_losses}\n"
                          f"End of day gain / loss: {self.num_eod_gains / (self.num_eod_gains + self.num_eod_losses)}\n"
+                         f"Gain average: {np.average(self.gains[:self.num_gains])}\n"
+                         f"Gain max: {np.max(self.gains[:self.num_gains])}\n"
+                         f"Gain min: {np.min(self.gains[:self.num_gains])}\n"
                          f"Risk / Chance: "
                          f"{np.average(self.gains[:self.num_gains]) / np.average(self.losses[:self.num_losses])}\n"
                          f"Total profit: {self.capital-self.initial_capital}\n")
@@ -380,11 +386,10 @@ def plot_capital_history(sb: StockBot, vals, path: str = None):
 
 
 def plot_capital(sb: StockBot):
-    plt.plot(sb.capital_history[:sb.get_num_trades()], label=f"take profit multiplier {sb.take_profit_multiplier}")
+    plt.plot(sb.capital_history[:sb.get_num_trades()])
     plt.xlabel('no. of trades')
     plt.ylabel('capital')
-    plt.legend()
-    plt.show()
+    plt.savefig("graph.png",  bbox_inches='tight')
 
 
 if __name__ == '__main__':
