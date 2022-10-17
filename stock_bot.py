@@ -11,7 +11,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
-                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT)
+                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -28,11 +28,11 @@ def plot_total_gain_percentage(gains):
 
 
 class StockBot:
-    def __init__(self, stock_client: StockClient, start: int = None, end: int = None, period: str = None, rsi_win_size: int = 10,
+    def __init__(self, stock_clients: List[StockClient], start: int = None, end: int = None, period: str = None, rsi_win_size: int = 10,
                  ema_win_size: int = 10, risk_unit: float = None, risk_limit: float = None, start_capital: float = None,
                  use_pyr: bool = True, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
                  log_to_file=False, tp_multiplier=TAKE_PROFIT_MULTIPLIER, sl_bound=STOP_LOSS_LOWER_BOUND):
-        self.ema = None
+        self.clients = stock_clients
         self.gain_avg = None
         self.loss_avg = None
         self.resolution = DEFAULT_RES
@@ -52,20 +52,18 @@ class StockBot:
         self.monitor_revenue = monitor_revenue
         self.capital = self.initial_capital = start_capital if start_capital else DEFAULT_START_CAPITAL
 
-        self.latest_trade: Tuple[int, int] = (-1, -1)  # sum paid and number of stock bought on latest buy trade
+        self.latest_trade: List[Tuple[int, int]] = [(-1, -1) for i in range(len(self.clients))]  # sum paid and number of stock bought on latest buy trade
 
         self.use_pyramid = use_pyr
 
         # these attributes will be used when determining whether to sell
         self.stop_loss = None
         self.take_profit = None
-        self.status = SellStatus.NEITHER
-
-        self.client = stock_client
+        self.status = [SellStatus.NEITHER for i in range(len(self.clients))]
 
         self.set_candle_data()
 
-        num_candles = self.client.get_num_candles()
+        num_candles = self.clients[0].get_num_candles()
         self.capital_history = np.zeros(num_candles)
         self.capital_history[0] = self.capital
         self.gains = np.zeros(num_candles)
@@ -83,7 +81,7 @@ class StockBot:
                                            CRITERIA.MACD: self.get_macd_criterion,
                                            CRITERIA.INSIDE_BAR: self.get_inside_bar_criterion,
                                            CRITERIA.REVERSAL_BAR: self.get_reversal_bar_criterion}
-        self.ema = None
+        self.ema = [None for i in range(len(self.clients))]
 
         self.criteria: List[CRITERIA] = []
         self.set_criteria(criteria)
@@ -100,8 +98,8 @@ class StockBot:
         self.logger = logging.getLogger('start logging')
         self.logger.setLevel(logging.INFO)
 
-    def get_close_price(self, index=-1):
-        closing_price = self.client.get_closing_price()
+    def get_close_price(self, client_index: int, index=-1):
+        closing_price = self.clients[client_index].get_closing_price()
         return closing_price[index]
 
     def set_tp_multiplier(self, val: float):
@@ -109,13 +107,14 @@ class StockBot:
 
     def reset(self):
         self.num_gains = self.num_eod_gains = self.num_losses = self.num_eod_losses = 0
-        self.status = SellStatus.NEITHER
+        self.status = [SellStatus.NEITHER for i in range(len(self.clients))]
         self.capital = self.initial_capital
 
     # @lru_cache(maxsize=1)
     def set_candle_data(self):
         if self.period:
-            self.client.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
+            for c in self.clients:
+                c.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
         self.data_changed = True
 
     def set_criteria(self, criteria: Optional[List[str]]) -> None:
@@ -129,15 +128,15 @@ class StockBot:
                 c = CRITERIA.factory(name)
                 self.criteria.append(c)
 
-    def get_rsi_criterion(self):
-        s_close_old = pd.Series(self.client.get_closing_price())
+    def get_rsi_criterion(self, client_index: int):
+        s_close_old = pd.Series(self.clients[client_index].get_closing_price())
         rsi_results = np.array(rsi(s_close_old))
         return np.where(rsi_results > 50)
 
-    def get_supertrend_criterion(self):
-        high = self.client.get_high_price()
-        low = self.client.get_low_price()
-        close = self.client.get_closing_price()
+    def get_supertrend_criterion(self, client_index: int):
+        high = self.clients[client_index].get_high_price()
+        low = self.clients[client_index].get_low_price()
+        close = self.clients[client_index].get_closing_price()
         supertrend_results_df = supertrend(pd.Series(high), pd.Series(low), pd.Series(close))
         supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
 
@@ -145,8 +144,8 @@ class StockBot:
 
         return np.array(indices)
 
-    def get_macd_criterion(self):
-        close_prices = self.client.get_closing_price()
+    def get_macd_criterion(self, client_index: int):
+        close_prices = self.clients[client_index].get_closing_price()
 
         macd_close = macd(close=pd.Series(close_prices), fast=12, slow=26, signal=9)
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
@@ -157,16 +156,16 @@ class StockBot:
 
         return indices_as_nd
 
-    def get_ema(self):
-        self.ema = ema(self.client.get_closing_price(), EMA_LENGTH)
-        return self.ema
+    def get_ema(self, client_index: int):
+        self.ema[client_index] = ema(self.clients[client_index].get_closing_price(), EMA_LENGTH)
+        return self.ema[client_index]
 
-    def get_inside_bar_criterion(self):
-        close_prices = self.client.get_closing_price()
-        open_prices = self.client.get_opening_price()
-        high_prices = self.client.get_high_price()
-        low_prices = self.client.get_low_price()
-        ema = self.ema if self.ema is not None else self.get_ema()
+    def get_inside_bar_criterion(self, client_index: int):
+        close_prices = self.clients[client_index].get_closing_price()
+        open_prices = self.clients[client_index].get_opening_price()
+        high_prices = self.clients[client_index].get_high_price()
+        low_prices = self.clients[client_index].get_low_price()
+        ema = self.ema[client_index] if self.ema[client_index] is not None else self.get_ema(client_index)
 
         positive_candles = close_prices[:-1] - open_prices[:-1]
         high_price_diff = np.diff(high_prices)
@@ -181,11 +180,11 @@ class StockBot:
 
         return indices
 
-    def get_reversal_bar_criterion(self):
-        close_prices = self.client.get_closing_price()
-        high_prices = self.client.get_high_price()
-        low_prices = self.client.get_low_price()
-        ema = self.ema if self.ema is not None else self.get_ema()
+    def get_reversal_bar_criterion(self, client_index: int):
+        close_prices = self.clients[client_index].get_closing_price()
+        high_prices = self.clients[client_index].get_high_price()
+        low_prices = self.clients[client_index].get_low_price()
+        ema = self.ema[client_index] if self.ema[client_index] is not None else self.get_ema(client_index)
 
         # 1st candle high+low bigger than 2nd candle high+low
         cond_1 = np.where((np.diff(high_prices) < 0) & (np.diff(low_prices) < 0))[0] + 1
@@ -197,20 +196,20 @@ class StockBot:
 
         return indices
 
-    def get_num_candles(self):
+    def get_num_candles(self, client_index: int = 0):
         """
         returns the number of candles that are currently observed
         """
-        return len(self.client.get_closing_price())
+        return len(self.clients[client_index].get_closing_price())
 
-    def _is_criteria(self, cond_operation='&') -> np.ndarray:
+    def _is_criteria(self, client_index: int, cond_operation='&') -> np.ndarray:
         """
         :param cond_operation: '&' or '|'. Indicates the operation that will be performed on the given criteria.
         """
-        indices = np.arange(self.get_num_candles()) if cond_operation == '&' else np.empty(0)
+        indices = np.arange(self.get_num_candles(client_index)) if cond_operation == '&' else np.empty(0)
         for c in self.criteria:
             callback = self.criteria_func_data_mapping[c]
-            criterion_indices = callback()
+            criterion_indices = callback(client_index)
             if cond_operation == '&':
                 indices = filter_by_array(indices, criterion_indices)
             else:
@@ -222,26 +221,26 @@ class StockBot:
 
         return indices
 
-    def is_buy(self, index: int = None) -> bool:
+    def is_buy(self, client_index: int, index: int = None) -> bool:
         op = '|' if self.is_bar_strategy() else '&'
-        approved_indices = self._is_criteria(cond_operation=op) if self.data_changed else self.criteria_indices
+        approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed else self.criteria_indices
         curr_index = self.get_num_candles()-1 if index is None else index
         # check if latest index which represents the current candle meets the criteria
         return np.isin([curr_index], approved_indices)[0]
 
-    def is_sell(self, index: int = None) -> bool:
-        if self.client.is_day_last_transaction(index):
+    def is_sell(self, client_index: int, index: int = None) -> bool:
+        if self.clients[client_index].is_day_last_transaction(index):
             return True
-        curr_index = self.get_num_candles() - 1 if index is None else index
-        latest = self.get_close_price(curr_index)
+        curr_index = self.get_num_candles(client_index) - 1 if index is None else index
+        latest = self.get_close_price(client_index, curr_index)
         return latest <= self.stop_loss or latest >= self.take_profit
 
     def get_num_trades(self):
         return self.num_gains + self.num_eod_gains + self.num_losses + self.num_eod_losses
 
-    def buy(self, index: int = None, sl_min_rel_pos=None) -> Tuple[int, int]:
-        closing_prices = self.client.get_closing_price()
-        stock_price = self.get_close_price(index)
+    def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None) -> Tuple[int, int]:
+        closing_prices = self.clients[client_index].get_closing_price()
+        stock_price = self.get_close_price(client_index, index)
 
         if sl_min_rel_pos is None:
             if len(closing_prices) < STOP_LOSS_RANGE:
@@ -250,7 +249,7 @@ class StockBot:
                 stop_loss_range = closing_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
             local_min = np.min(stop_loss_range)
         else:
-            local_min = self.get_close_price(index+sl_min_rel_pos)
+            local_min = self.get_close_price(client_index, index+sl_min_rel_pos)
 
         if local_min > stock_price:  # in case of inconsistent data
             return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
@@ -266,29 +265,33 @@ class StockBot:
             ru_dollars = get_percent(self.capital, self.risk_unit*self.ru_percentage)
             num_stocks = np.floor(np.minimum((ru_dollars / (1-(self.stop_loss/stock_price)) / stock_price),
                                   self.capital / stock_price))
-            self.latest_trade = (num_stocks * stock_price, num_stocks)
+            if num_stocks == 0:
+                return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
+            self.latest_trade[client_index] = (num_stocks * stock_price, num_stocks)
         else:
             num_stocks = self.capital / stock_price
-            self.latest_trade = (self.capital, num_stocks)
+            if num_stocks == 0:
+                return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
+            self.latest_trade[client_index] = (self.capital, num_stocks)
 
-        self.capital -= self.latest_trade[0]
-        self.status = SellStatus.BOUGHT
-        self.logger.info(f"Buy date: {self.client.get_candle_date(index)}\n"
-                         f"Buy price: {self.latest_trade[0]}")
+        self.capital -= self.latest_trade[client_index][0]
+        self.status[client_index] = SellStatus.BOUGHT
+        self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}\n"
+                         f"Buy price: {self.latest_trade[client_index][0]}")
 
-        return self.latest_trade
+        return self.latest_trade[client_index]
 
-    def sell(self, index: int = None) -> int:
-        if self.status != SellStatus.BOUGHT:
+    def sell(self, client_index: int, index: int = None) -> int:
+        if self.status[client_index] != SellStatus.BOUGHT:
             self.logger.info("Tried selling before buying a stock")
             return 0
 
-        curr_index = self.get_num_candles() - 1 if index is None else index
-        stock_price = self.get_close_price(curr_index)
-        sell_price = stock_price*self.latest_trade[1]
-        self.status = SellStatus.SOLD
-        profit = (sell_price / self.latest_trade[0]) - 1
-        is_eod = self.client.is_day_last_transaction(index)
+        curr_index = self.get_num_candles(client_index) - 1 if index is None else index
+        stock_price = self.get_close_price(client_index, curr_index)
+        sell_price = stock_price*self.latest_trade[client_index][1]
+        self.status[client_index] = SellStatus.SOLD
+        profit = (sell_price / self.latest_trade[client_index][0]) - 1
+        is_eod = self.clients[client_index].is_day_last_transaction(index)
 
         if profit > 0:  # gain
             if self.use_pyramid:
@@ -311,7 +314,7 @@ class StockBot:
 
         self.capital += sell_price
         self.capital_history[self.get_num_trades()] = self.capital
-        self.logger.info(f"Sale date: {self.client.get_candle_date(index)}\nSale Price: {sell_price}")
+        self.logger.info(f"Sale date: {self.clients[client_index].get_candle_date(index)}\nSale Price: {sell_price}")
 
         return sell_price
 
@@ -327,22 +330,25 @@ class StockBot:
             start, end = 0, self.get_num_candles() - 1
 
         for i in range(start, end):
-            if self.status in (SellStatus.SOLD, SellStatus.NEITHER):  # try to buy
-                condition = self.is_buy(index=i)
-                if condition:
-                    price, num_stocks = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None)
-                    if price != -1:  # in case trade was not complete
-                        self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}")
-            elif self.status == SellStatus.BOUGHT:  # try to sell
-                condition = self.is_sell(index=i)
-                if condition:
-                    price = self.sell(index=i, )
-                    self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price >= self.latest_trade[0] else LOSS}\n")
+            for j in range(len(self.clients)):
+                if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER):  # try to buy
+                    condition = self.is_buy(index=i, client_index=j)
+                    if condition:
+                        price, num_stocks = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j)
+                        if price != -1:  # in case trade was not complete
+                            self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}\nStock name {self.clients[j].name}\n")
+                elif self.status[j] == SellStatus.BOUGHT:  # try to sell
+                    condition = self.is_sell(index=i, client_index=j)
+                    if condition:
+                        price = self.sell(index=i, client_index=j)
+                        self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price >= self.latest_trade[j][0] else LOSS}\nStock name {self.clients[j].name}\n")
 
         self.log_summary()
         return self.capital
 
     def log_summary(self):
+        risk_chance = (np.average(self.gains[:self.num_gains]) / np.average(self.losses[:self.num_losses]))\
+                        if self.num_gains > 0 and self.num_losses > 0 else 0
         self.logger.info(f"Win percentage: {self.num_gains / (self.num_gains + self.num_losses)}\n"
                          f"Winning trades: {self.num_gains}\nLosing trades: {self.num_losses}\n"
                          f"Winning end of day trades: {self.num_eod_gains}\n"
@@ -352,7 +358,7 @@ class StockBot:
                          f"Gain max: {np.max(self.gains[:self.num_gains])}\n"
                          f"Gain min: {np.min(self.gains[:self.num_gains])}\n"
                          f"Risk / Chance: "
-                         f"{np.average(self.gains[:self.num_gains]) / np.average(self.losses[:self.num_losses])}\n"
+                         f"{risk_chance}\n"
                          f"Total profit: {self.capital-self.initial_capital}\n")
 
     def update_time(self, n: int = 15):
@@ -397,7 +403,10 @@ if __name__ == '__main__':
     period = '60d'
 
     from stock_client import StockClientYfinance
-    client: StockClient = StockClientYfinance(name=LONG_STOCK_NAME)
+    clients = [StockClientYfinance(name=name) for name in STOCKS]
 
-    sb = StockBot(stock_client=client, period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
+    sb = StockBot(stock_clients=clients, period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
     res = sb.calc_revenue()
+
+    if OUTPUT_PLOT:
+        plot_capital(sb)
