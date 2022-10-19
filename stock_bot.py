@@ -323,6 +323,12 @@ class StockBot:
                CRITERIA.INSIDE_BAR in self.criteria and\
                len(self.criteria) == 2
 
+    def is_client_occupied(self):
+        """
+        True if there's a client that still needs to sell
+        """
+        return any([self.status[k] == SellStatus.BOUGHT for k in range(len(self.clients))])
+
     def calc_revenue(self, candle_range: Tuple[int, int] = None):
         if candle_range:
             start, end = candle_range
@@ -331,7 +337,7 @@ class StockBot:
 
         for i in range(start, end):
             for j in range(len(self.clients)):
-                if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER):  # try to buy
+                if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
                     condition = self.is_buy(index=i, client_index=j)
                     if condition:
                         price, num_stocks = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j)
