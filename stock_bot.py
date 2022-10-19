@@ -357,6 +357,9 @@ class StockBot:
                          f"Gain average: {np.average(self.gains[:self.num_gains])}\n"
                          f"Gain max: {np.max(self.gains[:self.num_gains])}\n"
                          f"Gain min: {np.min(self.gains[:self.num_gains])}\n"
+                         f"Loss average: {np.average(self.losses[:self.num_losses])}\n"
+                         f"Loss max: {np.max(self.losses[:self.num_losses])}\n"
+                         f"Loss min: {np.min(self.losses[:self.num_losses])}\n"
                          f"Risk / Chance: "
                          f"{risk_chance}\n"
                          f"Total profit: {self.capital-self.initial_capital}\n")
