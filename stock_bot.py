@@ -277,7 +277,8 @@ class StockBot:
         self.capital -= self.latest_trade[client_index][0]
         self.status[client_index] = SellStatus.BOUGHT
         self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}\n"
-                         f"Buy price: {self.latest_trade[client_index][0]}")
+                         f"Buy amount: {self.latest_trade[client_index][0]}\n"
+                         f"Stock price: {stock_price}")
 
         return self.latest_trade[client_index]
 
@@ -314,7 +315,8 @@ class StockBot:
 
         self.capital += sell_price
         self.capital_history[self.get_num_trades()] = self.capital
-        self.logger.info(f"Sale date: {self.clients[client_index].get_candle_date(index)}\nSale Price: {sell_price}")
+        self.logger.info(f"Sale date: {self.clients[client_index].get_candle_date(index)}\nSale amount: {sell_price}\n"
+                         f"Stock price {stock_price}")
 
         return sell_price
 
