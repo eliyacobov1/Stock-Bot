@@ -1,4 +1,5 @@
 import yfinance as yf
+import ib_insync
 from typing import List, Union
 from abc import ABC, abstractmethod
 import pandas as pd
@@ -151,3 +152,60 @@ class StockClientYfinance(StockClient):
             self.candles = self._client.history(start=formatted_start, end=formatted_end, interval=parsed_res)
         else:
             self.candles = self._client.history(period=period, interval=parsed_res)
+
+
+class StockClientInteractive(StockClient):
+    def __init__(self, name: str):
+        super(StockClient, self).__init__()
+        ib = ib_insync.IB()
+        ib.connect('127.0.0.1', 7496, clientId=1)
+        self.name = name
+        self._stock = ib_insync.Stock(self.name, 'SMART', 'USD')
+        self._client = ib
+        self._res = None
+
+    def get_closing_price(self) -> pd.Series:
+        return self.candles['close']
+
+    def get_opening_price(self) -> pd.Series:
+        return self.candles['open']
+
+    def get_high_price(self) -> pd.Series:
+        return self.candles['high']
+
+    def get_low_price(self) -> pd.Series:
+        return self.candles['low']
+
+    def is_day_last_transaction(self, i: int) -> bool:
+        last_transaction_time: str = str()
+        if self._res == TimeRes.MINUTE_5:
+            last_transaction_time = "22:55:"
+        elif self._res == TimeRes.MINUTE_15:
+            last_transaction_time = "22:45:"
+        elif self._res == TimeRes.MINUTE_1:
+            last_transaction_time = "22:59:"
+        return last_transaction_time in self.get_candle_date(i)
+
+    def get_candle_date(self, i: int) -> str:
+        return str(self.candles.iloc[i].name)
+
+    @staticmethod
+    def res_to_str(res: TimeRes) -> str:
+        if res == TimeRes.MINUTE_1:
+            return '1 min'
+        if res == TimeRes.MINUTE_5:
+            return '5 min'
+        elif res == TimeRes.MINUTE_15:
+            return '15 min'
+
+    def get_num_candles(self) -> int:
+        return self.candles.shape[0]
+
+    def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
+        self._res = res
+        parsed_res = self.res_to_str(res)
+
+        formatted_end = convert_timestamp_format(end) if end is not None else ''
+        candles = self._client.reqHistoricalData(self._stock, endDateTime=formatted_end, durationStr=period,
+                                                 barSizeSetting=parsed_res, whatToShow='MIDPOINT', useRTH=True)
+        self.candles = ib_insync.util.df(candles)
