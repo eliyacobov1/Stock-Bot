@@ -11,7 +11,8 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
-                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS)
+                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
+                    RUN_ROBOT)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -71,6 +72,7 @@ class StockBot:
         self.losses = np.zeros(num_candles)
         self.eod_losses = np.zeros(num_candles)
         self.num_gains = self.num_eod_gains = self.num_losses = self.num_eod_losses = 0
+        self.trades_per_day = np.full(num_candles, -1)
 
         self.data_changed = True  # indicates whether new candle data was fetched or not
         self.criteria_indices = None
@@ -109,6 +111,7 @@ class StockBot:
         self.num_gains = self.num_eod_gains = self.num_losses = self.num_eod_losses = 0
         self.status = [SellStatus.NEITHER for i in range(len(self.clients))]
         self.capital = self.initial_capital
+        self.trades_per_day = np.full((self.clients[0].get_num_candles()), -1)
 
     # @lru_cache(maxsize=1)
     def set_candle_data(self):
@@ -325,6 +328,12 @@ class StockBot:
                CRITERIA.INSIDE_BAR in self.criteria and\
                len(self.criteria) == 2
 
+    def get_profit(self) -> float:
+        return self.capital - self.initial_capital
+
+    def get_profit_percentage(self) -> float:
+        return self.get_profit() / self.initial_capital
+
     def is_client_occupied(self):
         """
         True if there's a client that still needs to sell
@@ -350,6 +359,10 @@ class StockBot:
                     if condition:
                         price = self.sell(index=i, client_index=j)
                         self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price >= self.latest_trade[j][0] else LOSS}\nStock name {self.clients[j].name}\n")
+            # update the number of trades per day
+            if i > 0 and self.clients[0].is_day_last_transaction(i-1):  # first candle of the day
+                curr_day_index = np.where(self.trades_per_day == -1)[0][0]
+                self.trades_per_day[curr_day_index] = self.get_num_trades() - (np.sum(self.trades_per_day[:curr_day_index]))
 
         self.log_summary()
         return self.capital
@@ -357,6 +370,7 @@ class StockBot:
     def log_summary(self):
         risk_chance = (np.average(self.gains[:self.num_gains]) / np.average(self.losses[:self.num_losses]))\
                         if self.num_gains > 0 and self.num_losses > 0 else 0
+        tpd_valid = self.trades_per_day[:np.where(self.trades_per_day == -1)[0][0]]
         self.logger.info(f"Win percentage: {self.num_gains / (self.num_gains + self.num_losses)}\n"
                          f"Winning trades: {self.num_gains}\nLosing trades: {self.num_losses}\n"
                          f"Winning end of day trades: {self.num_eod_gains}\n"
@@ -365,12 +379,16 @@ class StockBot:
                          f"Gain average: {np.average(self.gains[:self.num_gains])}\n"
                          f"Gain max: {np.max(self.gains[:self.num_gains])}\n"
                          f"Gain min: {np.min(self.gains[:self.num_gains])}\n"
-                         f"Loss average: {np.average(self.losses[:self.num_losses])}\n"
-                         f"Loss max: {np.max(self.losses[:self.num_losses])}\n"
+                         f"Loss average: {format(np.average(self.losses[:self.num_losses]), '.3f')}\n"
+                         f"Loss max: {format(np.max(self.losses[:self.num_losses]), '.3f')}\n"
                          f"Loss min: {np.min(self.losses[:self.num_losses])}\n"
+                         f"Max number of trades per day: {np.max(tpd_valid)}\n"
+                         f"Min number of trades per day: {np.min(tpd_valid)}\n"
+                         f"Average number of trades per day: {np.average(tpd_valid)}\n"
+                         f"Most common number of trades per day: {np.bincount(tpd_valid).argmax()}\n"
                          f"Risk / Chance: "
                          f"{risk_chance}\n"
-                         f"Total profit: {self.capital-self.initial_capital}\n")
+                         f"Total profit: {self.get_profit()}\n")
 
     def update_time(self, n: int = 15):
         """
@@ -409,15 +427,33 @@ def plot_capital(sb: StockBot):
     plt.savefig("graph.png",  bbox_inches='tight')
 
 
+def filter_stocks(stocks: List[str], val: float):
+    res = []
+
+    for stock in stocks:
+        sb = StockBot(stock_clients=[StockClientYfinance(name=stock)], period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
+        sb.calc_revenue()
+        if sb.get_profit_percentage() >= val:
+            res.append(stock)
+    return res
+
+
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
     period = '60d'
 
     from stock_client import StockClientYfinance
-    clients = [StockClientYfinance(name=name) for name in STOCKS]
 
-    sb = StockBot(stock_clients=clients, period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
-    res = sb.calc_revenue()
+    if FILTER_STOCKS[2]:
+        stock_list, filter_val = FILTER_STOCKS[:2]
+        filtered = filter_stocks(stock_list, filter_val)
+        print(f"stocks that were filtered: {filtered}")
 
-    if OUTPUT_PLOT:
-        plot_capital(sb)
+    if RUN_ROBOT:
+        clients = [StockClientYfinance(name=name) for name in STOCKS]
+
+        sb = StockBot(stock_clients=clients, period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
+        res = sb.calc_revenue()
+
+        if OUTPUT_PLOT:
+            plot_capital(sb)
