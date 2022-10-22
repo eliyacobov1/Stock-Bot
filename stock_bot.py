@@ -371,23 +371,25 @@ class StockBot:
         risk_chance = (np.average(self.gains[:self.num_gains]) / np.average(self.losses[:self.num_losses]))\
                         if self.num_gains > 0 and self.num_losses > 0 else 0
         tpd_valid = self.trades_per_day[:np.where(self.trades_per_day == -1)[0][0]]
+        gains = self.gains[:self.num_gains]
+        losses = self.losses[:self.num_losses]
         self.logger.info(f"Win percentage: {self.num_gains / (self.num_gains + self.num_losses)}\n"
                          f"Winning trades: {self.num_gains}\nLosing trades: {self.num_losses}\n"
                          f"Winning end of day trades: {self.num_eod_gains}\n"
                          f"Losing end of day trades: {self.num_eod_losses}\n"
-                         f"End of day gain / loss: {self.num_eod_gains / (self.num_eod_gains + self.num_eod_losses)}\n"
-                         f"Gain average: {np.average(self.gains[:self.num_gains])}\n"
-                         f"Gain max: {np.max(self.gains[:self.num_gains])}\n"
-                         f"Gain min: {np.min(self.gains[:self.num_gains])}\n"
-                         f"Loss average: {format(np.average(self.losses[:self.num_losses]), '.3f')}\n"
-                         f"Loss max: {format(np.max(self.losses[:self.num_losses]), '.3f')}\n"
-                         f"Loss min: {np.min(self.losses[:self.num_losses])}\n"
+                         f"End of day gain / loss: {format(self.num_eod_gains / (self.num_eod_gains + self.num_eod_losses), '.3f')}\n"
+                         f"Gain average: {format(np.average(gains) if self.num_gains > 0 else 0, '.3f')}\n"
+                         f"Gain max: {format(np.max(gains) if self.num_gains > 0 else 0, '.3f')}\n"
+                         f"Gain min: {format(np.min(gains) if self.num_gains > 0 else 0, '.3f')}\n"
+                         f"Loss average: {format(np.average(losses) if self.num_losses > 0 else 0, '.3f')}\n"
+                         f"Loss max: {format(np.max(losses) if self.num_losses > 0 else 0, '.3f')}\n"
+                         f"Loss min: {format(np.min(losses) if self.num_losses > 0 else 0, '.3f')}\n"
                          f"Max number of trades per day: {np.max(tpd_valid)}\n"
                          f"Min number of trades per day: {np.min(tpd_valid)}\n"
-                         f"Average number of trades per day: {np.average(tpd_valid)}\n"
+                         f"Average number of trades per day: {format(np.average(tpd_valid), '.3f')}\n"
                          f"Most common number of trades per day: {np.bincount(tpd_valid).argmax()}\n"
                          f"Risk / Chance: "
-                         f"{risk_chance}\n"
+                         f"{format(risk_chance, '.3f')}\n"
                          f"Total profit: {self.get_profit()}\n")
 
     def update_time(self, n: int = 15):
