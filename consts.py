@@ -17,8 +17,12 @@ STOP_LOSS_LOWER_BOUND = 0.04
 
 OUTPUT_PLOT = True
 
-FILTER_STOCKS = (["AMD", "soxl", "soxs", "wix", "aapl"], 0.09, True)
-RUN_ROBOT = False
+FILTER_STOCKS = (["AMD", "soxl", "soxs", "wix", "aapl"], 0.09, False)
+RUN_ROBOT = True
+
+USE_RUN_WINS = True
+RUN_WINS_TAKE_PROFIT_MULTIPLIER = 0.5
+RUN_WINS_PERCENT = 0.5
 
 STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]

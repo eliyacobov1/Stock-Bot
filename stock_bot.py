@@ -12,7 +12,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
-                    RUN_ROBOT)
+                    RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -32,7 +32,8 @@ class StockBot:
     def __init__(self, stock_clients: List[StockClient], start: int = None, end: int = None, period: str = None, rsi_win_size: int = 10,
                  ema_win_size: int = 10, risk_unit: float = None, risk_limit: float = None, start_capital: float = None,
                  use_pyr: bool = True, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
-                 log_to_file=False, tp_multiplier=TAKE_PROFIT_MULTIPLIER, sl_bound=STOP_LOSS_LOWER_BOUND):
+                 log_to_file=False, tp_multiplier=TAKE_PROFIT_MULTIPLIER, sl_bound=STOP_LOSS_LOWER_BOUND, run_wins=USE_RUN_WINS,
+                 rw_take_profit_multiplier=RUN_WINS_TAKE_PROFIT_MULTIPLIER, rw_percent=RUN_WINS_PERCENT):
         self.clients = stock_clients
         self.gain_avg = None
         self.loss_avg = None
@@ -63,6 +64,13 @@ class StockBot:
         self.status = [SellStatus.NEITHER for i in range(len(self.clients))]
 
         self.set_candle_data()
+
+        # "let the wins run" strategy parameters
+        self.rw = run_wins
+        self.num_wins_thresh = 1
+        self.num_times_sold = 0
+        self.rw_take_profit_multiplier = rw_take_profit_multiplier
+        self.rw_percent = rw_percent
 
         num_candles = self.clients[0].get_num_candles()
         self.capital_history = np.zeros(num_candles)
@@ -241,6 +249,10 @@ class StockBot:
     def get_num_trades(self):
         return self.num_gains + self.num_eod_gains + self.num_losses + self.num_eod_losses
 
+    def get_latest_trade_stock_price(self, client_index: int) -> float:
+        client_latest_trade = self.latest_trade[client_index]
+        return client_latest_trade[0] / client_latest_trade[1]
+
     def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None) -> Tuple[int, int]:
         closing_prices = self.clients[client_index].get_closing_price()
         stock_price = self.get_close_price(client_index, index)
@@ -294,8 +306,30 @@ class StockBot:
         stock_price = self.get_close_price(client_index, curr_index)
         sell_price = stock_price*self.latest_trade[client_index][1]
         self.status[client_index] = SellStatus.SOLD
-        profit = (sell_price / self.latest_trade[client_index][0]) - 1
+
         is_eod = self.clients[client_index].is_day_last_transaction(index)
+        profit = (sell_price / self.latest_trade[client_index][0]) - 1
+
+        if self.rw and not is_eod:
+            if self.num_times_sold < self.num_wins_thresh:
+                self.num_times_sold += 1
+                self.status[client_index] = SellStatus.BOUGHT
+
+                num_stocks_sold = np.floor(self.latest_trade[client_index][1] * self.rw_percent)
+                sell_price = stock_price * num_stocks_sold
+                prev_stock_price = self.get_latest_trade_stock_price(client_index)
+                relative_prev_trade_amount = prev_stock_price * num_stocks_sold
+                profit = (sell_price / relative_prev_trade_amount) - 1
+
+                self.stop_loss = prev_stock_price
+                loss_percentage = 1 - (self.stop_loss / stock_price)
+                self.take_profit = stock_price * ((loss_percentage * self.rw_take_profit_multiplier) + 1)
+
+                self.latest_trade[client_index] = (self.latest_trade[client_index][0]-relative_prev_trade_amount,
+                                                   self.latest_trade[client_index][1]-num_stocks_sold)
+                self.logger.info(f"Let the wins run no. {self.num_times_sold}; Selling {self.rw_percent} of bought amount")
+            else:
+                self.num_times_sold = 0
 
         if profit > 0:  # gain
             if self.use_pyramid:
@@ -307,7 +341,7 @@ class StockBot:
                 self.eod_gains[self.num_eod_gains] = profit
                 self.num_eod_gains += 1
         else:  # loss
-            if self.use_pyramid:
+            if self.use_pyramid and (not self.rw or self.num_times_sold == 0):  # we only use pyramid at while not in rw streak
                 self.risk_unit = np.minimum(self.risk_unit*self.risk_growth, self.risk_limit)
             if not is_eod:
                 self.losses[self.num_losses] = -profit
