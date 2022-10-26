@@ -310,7 +310,7 @@ class StockBot:
         is_eod = self.clients[client_index].is_day_last_transaction(index)
         profit = (sell_price / self.latest_trade[client_index][0]) - 1
 
-        if self.rw and not is_eod:
+        if self.rw and not is_eod and profit > 0:
             if self.num_times_sold < self.num_wins_thresh:
                 self.num_times_sold += 1
                 self.status[client_index] = SellStatus.BOUGHT
@@ -355,7 +355,7 @@ class StockBot:
         self.logger.info(f"Sale date: {self.clients[client_index].get_candle_date(index)}\nSale amount: {sell_price}\n"
                          f"Stock price {stock_price}")
 
-        return sell_price
+        return profit
 
     def is_bar_strategy(self):
         return CRITERIA.REVERSAL_BAR in self.criteria and\
@@ -392,7 +392,7 @@ class StockBot:
                     condition = self.is_sell(index=i, client_index=j)
                     if condition:
                         price = self.sell(index=i, client_index=j)
-                        self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price >= self.latest_trade[j][0] else LOSS}\nStock name {self.clients[j].name}\n")
+                        self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price > 0 else LOSS}\nStock name {self.clients[j].name}\n")
             # update the number of trades per day
             if i > 0 and self.clients[0].is_day_last_transaction(i-1):  # first candle of the day
                 curr_day_index = np.where(self.trades_per_day == -1)[0][0]
