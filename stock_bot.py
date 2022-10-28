@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 
 import numpy as np
 import pandas as pd
@@ -12,10 +12,14 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
-                    RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT)
+                    RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
+
+AMOUNT = 0
+NUM_STOCKS = 1
+STOCK_PRICE = 2
 
 
 def plot_total_gain_percentage(gains):
@@ -54,7 +58,7 @@ class StockBot:
         self.monitor_revenue = monitor_revenue
         self.capital = self.initial_capital = start_capital if start_capital else DEFAULT_START_CAPITAL
 
-        self.latest_trade: List[Tuple[int, int]] = [(-1, -1) for i in range(len(self.clients))]  # sum paid and number of stock bought on latest buy trade
+        self.latest_trade: List[List[int]] = [[-1 for i in range(3)] for i in range(len(self.clients))]  # sum paid, number of stock bought, stock price on latest buy trade
 
         self.use_pyramid = use_pyr
 
@@ -251,9 +255,9 @@ class StockBot:
 
     def get_latest_trade_stock_price(self, client_index: int) -> float:
         client_latest_trade = self.latest_trade[client_index]
-        return client_latest_trade[0] / client_latest_trade[1]
+        return client_latest_trade[STOCK_PRICE]
 
-    def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None) -> Tuple[int, int]:
+    def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None) -> int:
         closing_prices = self.clients[client_index].get_closing_price()
         stock_price = self.get_close_price(client_index, index)
 
@@ -267,12 +271,12 @@ class StockBot:
             local_min = self.get_close_price(client_index, index+sl_min_rel_pos)
 
         if local_min > stock_price:  # in case of inconsistent data
-            return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
+            return TRADE_NOT_COMPLETE
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
         if loss_percentage > self.stop_loss_bound:
-            return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
+            return TRADE_NOT_COMPLETE
         self.stop_loss = stock_price * (1-loss_percentage)
         self.take_profit = stock_price*((loss_percentage * self.take_profit_multiplier)+1)
 
@@ -281,21 +285,21 @@ class StockBot:
             num_stocks = np.floor(np.minimum((ru_dollars / (1-(self.stop_loss/stock_price)) / stock_price),
                                   self.capital / stock_price))
             if num_stocks == 0:
-                return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
-            self.latest_trade[client_index] = (num_stocks * stock_price, num_stocks)
+                return TRADE_NOT_COMPLETE
+            self.latest_trade[client_index] = [num_stocks * stock_price, num_stocks, stock_price]
         else:
             num_stocks = self.capital / stock_price
             if num_stocks == 0:
-                return TRADE_NOT_COMPLETE, TRADE_NOT_COMPLETE
-            self.latest_trade[client_index] = (self.capital, num_stocks)
+                return TRADE_NOT_COMPLETE
+            self.latest_trade[client_index] = [self.capital, num_stocks, stock_price]
 
-        self.capital -= self.latest_trade[client_index][0]
+        self.capital -= self.latest_trade[client_index][AMOUNT]
         self.status[client_index] = SellStatus.BOUGHT
         self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}\n"
-                         f"Buy amount: {self.latest_trade[client_index][0]}\n"
+                         f"Buy amount: {self.latest_trade[client_index][AMOUNT]}\n"
                          f"Stock price: {stock_price}")
 
-        return self.latest_trade[client_index]
+        return TRADE_COMPLETE
 
     def sell(self, client_index: int, index: int = None) -> int:
         if self.status[client_index] != SellStatus.BOUGHT:
@@ -304,18 +308,18 @@ class StockBot:
 
         curr_index = self.get_num_candles(client_index) - 1 if index is None else index
         stock_price = self.get_close_price(client_index, curr_index)
-        sell_price = stock_price*self.latest_trade[client_index][1]
+        sell_price = stock_price*self.latest_trade[client_index][NUM_STOCKS]
         self.status[client_index] = SellStatus.SOLD
 
         is_eod = self.clients[client_index].is_day_last_transaction(index)
-        profit = (sell_price / self.latest_trade[client_index][0]) - 1
+        profit = (sell_price / self.latest_trade[client_index][AMOUNT]) - 1
 
         if self.rw and not is_eod and profit > 0:
             if self.num_times_sold < self.num_wins_thresh:
                 self.num_times_sold += 1
                 self.status[client_index] = SellStatus.BOUGHT
 
-                num_stocks_sold = np.floor(self.latest_trade[client_index][1] * self.rw_percent)
+                num_stocks_sold = np.floor(self.latest_trade[client_index][NUM_STOCKS] * self.rw_percent)
                 sell_price = stock_price * num_stocks_sold
                 prev_stock_price = self.get_latest_trade_stock_price(client_index)
                 relative_prev_trade_amount = prev_stock_price * num_stocks_sold
@@ -325,8 +329,9 @@ class StockBot:
                 loss_percentage = 1 - (self.stop_loss / stock_price)
                 self.take_profit = stock_price * ((loss_percentage * self.rw_take_profit_multiplier) + 1)
 
-                self.latest_trade[client_index] = (self.latest_trade[client_index][0]-relative_prev_trade_amount,
-                                                   self.latest_trade[client_index][1]-num_stocks_sold)
+                self.latest_trade[client_index] = [self.latest_trade[client_index][AMOUNT]-relative_prev_trade_amount,
+                                                   self.latest_trade[client_index][NUM_STOCKS]-num_stocks_sold,
+                                                   stock_price]
                 self.logger.info(f"Let the wins run no. {self.num_times_sold}; Selling {self.rw_percent} of bought amount")
             else:
                 self.num_times_sold = 0
@@ -385,9 +390,9 @@ class StockBot:
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
                     condition = self.is_buy(index=i, client_index=j)
                     if condition:
-                        price, num_stocks = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j)
-                        if price != -1:  # in case trade was not complete
-                            self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(num_stocks)}\nStock name {self.clients[j].name}\n")
+                        ret_val = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j)
+                        if ret_val == TRADE_COMPLETE:  # in case trade was not complete
+                            self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name {self.clients[j].name}\n")
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
                     condition = self.is_sell(index=i, client_index=j)
                     if condition:

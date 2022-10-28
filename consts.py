@@ -8,6 +8,7 @@ LOGGER_NAME = "STOCKBOT_LOG"
 
 GAIN, LOSS = "Gain", "Loss"
 TRADE_NOT_COMPLETE = -1
+TRADE_COMPLETE = 0
 
 # sell parameters
 STOP_LOSS_RANGE = 20
