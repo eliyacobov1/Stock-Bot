@@ -12,7 +12,8 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
-                    RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE)
+                    RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
+                    MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -145,14 +146,21 @@ class StockBot:
 
     def get_rsi_criterion(self, client_index: int):
         s_close_old = pd.Series(self.clients[client_index].get_closing_price())
-        rsi_results = np.array(rsi(s_close_old))
+
+        length = RSI_PARAMS
+
+        rsi_results = np.array(rsi(s_close_old, length=length))
         return np.where(rsi_results > 50)
 
     def get_supertrend_criterion(self, client_index: int):
         high = self.clients[client_index].get_high_price()
         low = self.clients[client_index].get_low_price()
         close = self.clients[client_index].get_closing_price()
-        supertrend_results_df = supertrend(pd.Series(high), pd.Series(low), pd.Series(close))
+
+        length, multiplier = SUPERTREND_PARAMS
+
+        supertrend_results_df = supertrend(pd.Series(high), pd.Series(low), pd.Series(close),
+                                           length=length, multiplier=multiplier)
         supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
 
         indices = np.where(supertrend_results < close)
@@ -162,7 +170,8 @@ class StockBot:
     def get_macd_criterion(self, client_index: int):
         close_prices = self.clients[client_index].get_closing_price()
 
-        macd_close = macd(close=pd.Series(close_prices), fast=12, slow=26, signal=9)
+        fast, slow, signal = MACD_PARAMS
+        macd_close = macd(close=pd.Series(close_prices), fast=fast, slow=slow, signal=signal)
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
         signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX])
 

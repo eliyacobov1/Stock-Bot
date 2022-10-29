@@ -25,6 +25,10 @@ USE_RUN_WINS = True
 RUN_WINS_TAKE_PROFIT_MULTIPLIER = 0.5
 RUN_WINS_PERCENT = 0.5
 
+MACD_PARAMS = (12, 26, 9)  # fast, slow, signal
+SUPERTREND_PARAMS = (7, 3)  # length, multiplier
+RSI_PARAMS = 14  # length
+
 STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]
 DEFAULT_CRITERIA_LIST = STRATEGY_2
