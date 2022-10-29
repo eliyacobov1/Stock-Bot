@@ -1,3 +1,7 @@
+import datetime
+
+from functools import lru_cache
+
 import yfinance as yf
 import ib_insync
 from typing import List, Union
@@ -50,6 +54,41 @@ class StockClient(ABC):
 
     @abstractmethod
     def get_num_candles(self) -> int:
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def res_to_period(res: TimeRes) -> str:
+        pass
+
+    @abstractmethod
+    def parse_date(self, candle_index: int) -> datetime.time:
+        pass
+
+    @abstractmethod
+    @lru_cache(maxsize=None)
+    def _n_last_candles(self, n: int = 3) -> datetime.time:
+        pass
+
+    @abstractmethod
+    @lru_cache(maxsize=None)
+    def _n_first_candles(self, n: int = 3) -> datetime.time:
+        pass
+
+    @abstractmethod
+    def is_in_first_n_candles(self, candle_index: int, n: int = 3) -> bool:
+        pass
+
+    @abstractmethod
+    def is_in_last_n_candles(self, candle_index: int, n: int = 3) -> bool:
+        pass
+
+    @abstractmethod
+    def is_close_date(self, candle_index: int):
+        pass
+
+    @abstractmethod
+    def add_candle(self):
         pass
 
 
@@ -153,6 +192,53 @@ class StockClientYfinance(StockClient):
         else:
             self.candles = self._client.history(period=period, interval=parsed_res)
 
+    @staticmethod
+    def res_to_period(res: TimeRes) -> str:
+        if res == TimeRes.MINUTE_1:
+            return '1m'
+        if res == TimeRes.MINUTE_5:
+            return '5m'
+        elif res == TimeRes.MINUTE_15:
+            return '15m'
+
+    def parse_date(self, candle_index: int) -> datetime.time:
+        date_str = str(self.candles.iloc[candle_index].name).split("-")[-2].split()[-1].split(":")
+        h, m, s = date_str
+        return datetime.time(hour=int(h), minute=int(m), second=int(s))
+
+    @lru_cache(maxsize=None)
+    def _n_last_candles(self, n: int = 3) -> datetime.time:
+        res_to_int = 1 if self._res == TimeRes.MINUTE_1 else (5 if self._res == TimeRes.MINUTE_5 else 15)
+        h = (res_to_int * n) // 60
+        m = (res_to_int * n) % 60
+        end_time = datetime.time(hour=15-h + (60-m) // 60, minute=(60-m) % 60, second=0)
+        return end_time
+
+    @lru_cache(maxsize=None)
+    def _n_first_candles(self, n: int = 3) -> datetime.time:
+        res_to_int = 1 if self._res == TimeRes.MINUTE_1 else (5 if self._res == TimeRes.MINUTE_5 else 15)
+        h = (res_to_int * n) // 60
+        m = (res_to_int * n) % 60
+        start_time = datetime.time(hour=9+h+(30+m)//60, minute=(30+m) % 60, second=0)
+        return start_time
+
+    def is_in_first_n_candles(self, candle_index: int, n: int = 3) -> bool:
+        candle_date = self.parse_date(candle_index)
+        return candle_date < self._n_first_candles(n=n)
+
+    def is_in_last_n_candles(self, candle_index: int, n: int = 3) -> bool:
+        candle_date = self.parse_date(candle_index)
+        return candle_date >= self._n_last_candles(n=n)
+
+    def is_close_date(self, candle_index: int):
+        date = self.parse_date(candle_index)
+        if self._res == TimeRes.MINUTE_1:
+            return date.second == 0
+        if self._res == TimeRes.MINUTE_5:
+            return date.minute % 5 == 0 and date.second == 0
+        elif self._res == TimeRes.MINUTE_15:
+            return date.minute % 15 == 0 and date.second == 0
+
 
 class StockClientInteractive(StockClient):
     def __init__(self, name: str):
@@ -197,6 +283,15 @@ class StockClientInteractive(StockClient):
             return '5 min'
         elif res == TimeRes.MINUTE_15:
             return '15 min'
+
+    @staticmethod
+    def res_to_period(res: TimeRes) -> str:
+        if res == TimeRes.MINUTE_1:
+            return '60 S'
+        if res == TimeRes.MINUTE_5:
+            return '300 S'
+        elif res == TimeRes.MINUTE_15:
+            return '900 S'
 
     def get_num_candles(self) -> int:
         return self.candles.shape[0]

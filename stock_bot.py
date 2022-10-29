@@ -13,7 +13,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
-                    MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS)
+                    MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -246,6 +246,12 @@ class StockBot:
         return indices
 
     def is_buy(self, client_index: int, index: int = None) -> bool:
+        is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
+        if is_begin_day:
+            return False
+        is_end_day = self.clients[client_index].is_in_last_n_candles(n=N_LAST_CANDLES_OF_DAY, candle_index=index)
+        if is_end_day:
+            return False
         op = '|' if self.is_bar_strategy() else '&'
         approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed else self.criteria_indices
         curr_index = self.get_num_candles()-1 if index is None else index
@@ -297,7 +303,7 @@ class StockBot:
                 return TRADE_NOT_COMPLETE
             self.latest_trade[client_index] = [num_stocks * stock_price, num_stocks, stock_price]
         else:
-            num_stocks = self.capital / stock_price
+            num_stocks = np.floor(self.capital / stock_price)
             if num_stocks == 0:
                 return TRADE_NOT_COMPLETE
             self.latest_trade[client_index] = [self.capital, num_stocks, stock_price]
