@@ -314,6 +314,8 @@ class StockBot:
         is_eod = self.clients[client_index].is_day_last_transaction(index)
         profit = (sell_price / self.latest_trade[client_index][AMOUNT]) - 1
 
+        add_to_log = True  # we don't want to add trades that are in the middle of rw streak
+
         if self.rw and not is_eod and profit > 0:
             if self.rw_num_times_sold < self.num_wins_thresh:
                 self.rw_num_times_sold += 1
@@ -335,27 +337,30 @@ class StockBot:
                 self.logger.info(f"Let the wins run no. {self.rw_num_times_sold}; Selling {self.rw_percent} of bought amount")
             else:
                 self.rw_num_times_sold = 0
+                add_to_log = False
         else:
+            add_to_log = self.rw_num_times_sold == 0
             self.rw_num_times_sold = 0
 
-        if profit > 0:  # gain
-            if self.use_pyramid:
-                self.risk_unit = self.initial_risk_unit
-            if not is_eod:
-                self.gains[self.num_gains] = profit
-                self.num_gains += 1
-            else:
-                self.eod_gains[self.num_eod_gains] = profit
-                self.num_eod_gains += 1
-        else:  # loss
-            if self.use_pyramid and (not self.rw or self.rw_num_times_sold == 0):  # we only use pyramid at while not in rw streak
-                self.risk_unit = np.minimum(self.risk_unit*self.risk_growth, self.risk_limit)
-            if not is_eod:
-                self.losses[self.num_losses] = -profit
-                self.num_losses += 1
-            else:
-                self.eod_losses[self.num_eod_losses] = -profit
-                self.num_eod_losses += 1
+        if not self.rw or (self.rw and self.rw_num_times_sold == 1) or add_to_log:
+            if profit > 0:  # gain
+                if self.use_pyramid:
+                    self.risk_unit = self.initial_risk_unit
+                if not is_eod:
+                    self.gains[self.num_gains] = profit
+                    self.num_gains += 1
+                else:
+                    self.eod_gains[self.num_eod_gains] = profit
+                    self.num_eod_gains += 1
+            else:  # loss
+                if self.use_pyramid and (not self.rw or self.rw_num_times_sold == 0):  # we only use pyramid at while not in rw streak
+                    self.risk_unit = np.minimum(self.risk_unit*self.risk_growth, self.risk_limit)
+                if not is_eod:
+                    self.losses[self.num_losses] = -profit
+                    self.num_losses += 1
+                else:
+                    self.eod_losses[self.num_eod_losses] = -profit
+                    self.num_eod_losses += 1
 
         self.capital += sell_price
         if self.rw_num_times_sold == 0:  # make sure that we are not in the middle of rw
