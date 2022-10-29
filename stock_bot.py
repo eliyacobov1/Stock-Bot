@@ -435,7 +435,7 @@ class StockBot:
         tpd_valid = self.trades_per_day[:np.where(self.trades_per_day == -1)[0][0]]
         gains = self.gains[:self.num_gains]
         losses = self.losses[:self.num_losses]
-        self.logger.info(f"Win percentage: {self.num_gains / (self.num_gains + self.num_losses)}\n"
+        self.logger.info(f"Win percentage: {format(self.num_gains / (self.num_gains + self.num_losses), '.3f')}\n"
                          f"Winning trades: {self.num_gains}\nLosing trades: {self.num_losses}\n"
                          f"Winning end of day trades: {self.num_eod_gains}\n"
                          f"Losing end of day trades: {self.num_eod_losses}\n"
@@ -452,7 +452,7 @@ class StockBot:
                          f"Most common number of trades per day: {np.bincount(tpd_valid).argmax()}\n"
                          f"Risk / Chance: "
                          f"{format(risk_chance, '.3f')}\n"
-                         f"Total profit: {self.get_profit()}\n")
+                         f"Total profit: {format(self.get_profit(), '.3f')}\n")
 
     def update_time(self, n: int = 15):
         """
