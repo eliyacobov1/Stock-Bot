@@ -471,6 +471,7 @@ class StockBot:
         gains = self.gains[:self.num_gains]
         losses = self.losses[:self.num_losses]
         self.logger.info(f"Win percentage: {format(self.num_gains / (self.num_gains + self.num_losses), '.3f')}\n"
+                         f"Total trades: {self.get_num_trades()}\n"
                          f"Winning trades: {self.num_gains}\nLosing trades: {self.num_losses}\n"
                          f"Winning end of day trades: {self.num_eod_gains}\n"
                          f"Losing end of day trades: {self.num_eod_losses}\n"
