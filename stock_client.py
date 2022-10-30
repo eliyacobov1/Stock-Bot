@@ -62,7 +62,7 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
-    def parse_date(self, candle_index: int) -> datetime.time:
+    def parse_date(self, date: str = None, candle_index: int = None) -> datetime.time:
         pass
 
     @abstractmethod
@@ -75,21 +75,43 @@ class StockClient(ABC):
     def _n_first_candles(self, n: int = 3) -> datetime.time:
         pass
 
-    @abstractmethod
     def is_in_first_n_candles(self, candle_index: int, n: int = 3) -> bool:
-        pass
+        candle_date = self.parse_date(candle_index=candle_index)
+        return candle_date < self._n_first_candles(n=n)
 
-    @abstractmethod
     def is_in_last_n_candles(self, candle_index: int, n: int = 3) -> bool:
-        pass
+        candle_date = self.parse_date(candle_index=candle_index)
+        return candle_date >= self._n_last_candles(n=n)
 
-    @abstractmethod
-    def is_close_date(self, candle_index: int):
-        pass
+    def is_close_date(self, date_str: str = None, candle_index: int = None):
+        if date_str is None:
+            date = self.parse_date(candle_index=candle_index)
+        else:
+            date = self.parse_date(date=date_str)
+        if self._res == TimeRes.MINUTE_1:
+            return date.second == 0
+        if self._res == TimeRes.MINUTE_5:
+            return date.minute % 5 == 0 and date.second == 0
+        elif self._res == TimeRes.MINUTE_15:
+            return date.minute % 15 == 0 and date.second == 0
 
-    @abstractmethod
-    def add_candle(self):
-        pass
+    def add_candle(self) -> True:
+        candles = self._client.history(period=self.res_to_period(self._res), interval=self.res_to_str(self._res))
+        latest_date = self.parse_date(candle_index=-1)
+        if self.parse_date(str(candles.iloc[-1].name)) <= latest_date:
+            return False
+        df_rows = [candles.iloc[-1]]
+        if not self.is_close_date(candle_index=len(self.candles) - 1):
+            self.candles.drop(self.candles.tail(n=1).index, inplace=True)
+        for i in range(len(candles) - 2, -1, -1):
+            row_date = str(self.candles.iloc[i].name)
+            if self.is_close_date(date_str=row_date) and self.parse_date(row_date) > latest_date:
+                df_rows = [candles.iloc[i]] + df_rows
+        for row in df_rows:
+            if self.is_close_date(date_str=str(row.name)):
+                self.candles.drop(self.candles.head(n=1).index, inplace=True)
+            self.candles = self.candles.append(row)
+        return True
 
 
 class StockClientFinhub(StockClient):
@@ -201,8 +223,11 @@ class StockClientYfinance(StockClient):
         elif res == TimeRes.MINUTE_15:
             return '15m'
 
-    def parse_date(self, candle_index: int) -> datetime.time:
-        date_str = str(self.candles.iloc[candle_index].name).split("-")[-2].split()[-1].split(":")
+    def parse_date(self, date: str = None, candle_index: int = None) -> datetime.time:
+        if date is None:
+            date_str = str(self.candles.iloc[candle_index].name).split("-")[-2].split()[-1].split(":")
+        else:
+            date_str = date.split("-")[-2].split()[-1].split(":")
         h, m, s = date_str
         return datetime.time(hour=int(h), minute=int(m), second=int(s))
 
@@ -221,23 +246,6 @@ class StockClientYfinance(StockClient):
         m = (res_to_int * n) % 60
         start_time = datetime.time(hour=9+h+(30+m)//60, minute=(30+m) % 60, second=0)
         return start_time
-
-    def is_in_first_n_candles(self, candle_index: int, n: int = 3) -> bool:
-        candle_date = self.parse_date(candle_index)
-        return candle_date < self._n_first_candles(n=n)
-
-    def is_in_last_n_candles(self, candle_index: int, n: int = 3) -> bool:
-        candle_date = self.parse_date(candle_index)
-        return candle_date >= self._n_last_candles(n=n)
-
-    def is_close_date(self, candle_index: int):
-        date = self.parse_date(candle_index)
-        if self._res == TimeRes.MINUTE_1:
-            return date.second == 0
-        if self._res == TimeRes.MINUTE_5:
-            return date.minute % 5 == 0 and date.second == 0
-        elif self._res == TimeRes.MINUTE_15:
-            return date.minute % 15 == 0 and date.second == 0
 
 
 class StockClientInteractive(StockClient):
@@ -292,6 +300,30 @@ class StockClientInteractive(StockClient):
             return '300 S'
         elif res == TimeRes.MINUTE_15:
             return '900 S'
+
+    def parse_date(self, date: str = None, candle_index: int = None) -> datetime.time:
+        if date is None:
+            date_str = str(self.candles.iloc[candle_index].name).split("-")[-2].split()[-1].split(":")
+        else:
+            date_str = date.split("-")[-2].split()[-1].split(":")
+        h, m, s = date_str
+        return datetime.time(hour=int(h), minute=int(m), second=int(s))
+
+    @lru_cache(maxsize=None)
+    def _n_last_candles(self, n: int = 3) -> datetime.time:
+        res_to_int = 1 if self._res == TimeRes.MINUTE_1 else (5 if self._res == TimeRes.MINUTE_5 else 15)
+        h = (res_to_int * n) // 60
+        m = (res_to_int * n) % 60
+        end_time = datetime.time(hour=22 - h + (60 - m) // 60, minute=(60 - m) % 60, second=0)
+        return end_time
+
+    @lru_cache(maxsize=None)
+    def _n_first_candles(self, n: int = 3) -> datetime.time:
+        res_to_int = 1 if self._res == TimeRes.MINUTE_1 else (5 if self._res == TimeRes.MINUTE_5 else 15)
+        h = (res_to_int * n) // 60
+        m = (res_to_int * n) % 60
+        start_time = datetime.time(hour=16 + h + (30 + m) // 60, minute=(30 + m) % 60, second=0)
+        return start_time
 
     def get_num_candles(self) -> int:
         return self.candles.shape[0]

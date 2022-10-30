@@ -1,3 +1,4 @@
+import time
 from typing import List, Optional, Tuple, Dict
 
 import numpy as np
@@ -13,7 +14,8 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
-                    MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY)
+                    MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
+                    REAL_TIME)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -246,6 +248,8 @@ class StockBot:
         return indices
 
     def is_buy(self, client_index: int, index: int = None) -> bool:
+        if index is None:
+            index = self.get_num_candles()-1 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
         if is_begin_day:
             return False
@@ -259,6 +263,8 @@ class StockBot:
         return np.isin([curr_index], approved_indices)[0]
 
     def is_sell(self, client_index: int, index: int = None) -> bool:
+        if index is None:
+            index = self.get_num_candles()-1 if index is None else index
         if self.clients[client_index].is_day_last_transaction(index):
             return True
         curr_index = self.get_num_candles(client_index) - 1 if index is None else index
@@ -273,6 +279,8 @@ class StockBot:
         return client_latest_trade[STOCK_PRICE]
 
     def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None) -> int:
+        if index is None:
+            index = self.get_num_candles()-1 if index is None else index
         closing_prices = self.clients[client_index].get_closing_price()
         stock_price = self.get_close_price(client_index, index)
 
@@ -317,6 +325,8 @@ class StockBot:
         return TRADE_COMPLETE
 
     def sell(self, client_index: int, index: int = None) -> int:
+        if index is None:
+            index = self.get_num_candles()-1 if index is None else index
         if self.status[client_index] != SellStatus.BOUGHT:
             self.logger.info("Tried selling before buying a stock")
             return 0
@@ -402,7 +412,7 @@ class StockBot:
         """
         return any([self.status[k] == SellStatus.BOUGHT for k in range(len(self.clients))])
 
-    def calc_revenue(self, candle_range: Tuple[int, int] = None):
+    def calc_revenue(self, candle_range: Tuple[int, int] = None) -> float:
         if candle_range:
             start, end = candle_range
         else:
@@ -427,6 +437,29 @@ class StockBot:
                 self.trades_per_day[curr_day_index] = self.get_num_trades() - (np.sum(self.trades_per_day[:curr_day_index]))
 
         self.log_summary()
+        return self.capital
+
+    def main_loop(self) -> float:
+        is_eod = False
+        while not is_eod:
+            for j in range(len(self.clients)):
+                self.clients[j].add_candle()
+                self.logger.info(
+                    f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")
+                if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
+                    condition = self.is_buy(client_index=j)
+                    if condition:
+                        ret_val = self.buy(sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j)
+                        if ret_val == TRADE_COMPLETE:  # in case trade was not complete
+                            self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name {self.clients[j].name}\n")
+                elif self.status[j] == SellStatus.BOUGHT:  # try to sell
+                    condition = self.is_sell(client_index=j)
+                    if condition:
+                        profit = self.sell(client_index=j)
+                        self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if profit > 0 else LOSS}\nStock name {self.clients[j].name}\n")
+                if self.clients[j].is_day_last_transaction(-1):
+                    is_eod = True
+            time.sleep(10)
         return self.capital
 
     def log_summary(self):
@@ -504,7 +537,7 @@ def filter_stocks(stocks: List[str], val: float):
 
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
-    period = '60d'
+    period = f'{1 if REAL_TIME else 60}d'
 
     from stock_client import StockClientYfinance
 
@@ -517,7 +550,10 @@ if __name__ == '__main__':
         clients = [StockClientYfinance(name=name) for name in STOCKS]
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
-        res = sb.calc_revenue()
+        if REAL_TIME:
+            res = sb.main_loop()
+        else:
+            res = sb.calc_revenue()
 
         if OUTPUT_PLOT:
             plot_capital(sb)
