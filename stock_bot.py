@@ -319,6 +319,7 @@ class StockBot:
         self.capital -= self.latest_trade[client_index][AMOUNT]
         self.status[client_index] = SellStatus.BOUGHT
         self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}\n"
+                         f"Trade no.: {self.get_num_trades()+1}\n"
                          f"Buy amount: {self.latest_trade[client_index][AMOUNT]}\n"
                          f"Stock price: {stock_price}")
 
@@ -391,6 +392,7 @@ class StockBot:
         if self.rw_num_times_sold == 0:  # make sure that we are not in the middle of rw
             self.capital_history[self.get_num_trades()] = self.capital
         self.logger.info(f"Sale date: {self.clients[client_index].get_candle_date(index)}\nSale amount: {sell_price}\n"
+                         f"Trade no.: {self.get_num_trades()}\n"
                          f"Stock price: {stock_price}")
 
         return profit
