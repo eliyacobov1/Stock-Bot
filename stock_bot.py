@@ -15,7 +15,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
-                    REAL_TIME)
+                    REAL_TIME, SELL_ON_TOUCH)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -118,6 +118,14 @@ class StockBot:
     def get_close_price(self, client_index: int, index=-1):
         closing_price = self.clients[client_index].get_closing_price()
         return closing_price[index]
+
+    def get_low_price(self, client_index: int, index=-1):
+        low_price = self.clients[client_index].get_low_price()
+        return low_price[index]
+
+    def get_high_price(self, client_index: int, index=-1):
+        high_price = self.clients[client_index].get_high_price()
+        return high_price[index]
 
     def set_tp_multiplier(self, val: float):
         self.take_profit_multiplier = val
@@ -262,14 +270,19 @@ class StockBot:
         # check if latest index which represents the current candle meets the criteria
         return np.isin([curr_index], approved_indices)[0]
 
-    def is_sell(self, client_index: int, index: int = None) -> bool:
+    def is_sell(self, client_index: int, index: int = None, sell_on_touch=SELL_ON_TOUCH) -> bool:
         if index is None:
             index = self.get_num_candles()-1 if index is None else index
         if self.clients[client_index].is_day_last_transaction(index):
             return True
         curr_index = self.get_num_candles(client_index) - 1 if index is None else index
-        latest = self.get_close_price(client_index, curr_index)
-        return latest <= self.stop_loss or latest >= self.take_profit
+        if sell_on_touch:
+            latest_low = self.get_low_price(client_index, curr_index)
+            latest_high = self.get_high_price(client_index, curr_index)
+            return latest_low <= self.stop_loss or latest_high >= self.take_profit
+        else:
+            latest_close = self.get_close_price(client_index, curr_index)
+            return latest_close <= self.stop_loss or latest_close >= self.take_profit
 
     def get_num_trades(self):
         return self.num_gains + self.num_eod_gains + self.num_losses + self.num_eod_losses
