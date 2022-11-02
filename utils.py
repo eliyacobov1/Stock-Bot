@@ -3,6 +3,15 @@ from typing import Union
 import numpy as np
 from datetime import datetime, timezone, timedelta
 
+from email.message import EmailMessage
+import ssl
+import smtplib
+
+from secret import EMAIL_PASSWORD
+
+EMAIL_SENDER = 'eleinvestgroup@gmail.com'
+EMAIL_RECEIVER = ['eladbeber619@gmail.com', 'elad_beber@walla.com', 'eli.yacobov1@gamil.com']
+
 
 def minutes_to_secs(minutes: int):
     """
@@ -34,3 +43,17 @@ def convert_timestamp_format(ts: int) -> str:
 
 def get_percent(n: int, percent: Union[float, int]) -> float:
     return n * (percent/100)
+
+
+def send_email(subject=None, body=None):
+    em = EmailMessage()
+    em['From'] = EMAIL_SENDER
+    em['To'] = EMAIL_RECEIVER
+    if subject:
+        em['Subject'] = subject
+    if body:
+        em.set_content(body)
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
+        smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        smtp.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, em.as_string())
