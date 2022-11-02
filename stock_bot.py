@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from pandas_ta import rsi, macd, supertrend, ema
 import logging
 
-from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent)
+from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent, send_email)
 from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
@@ -117,15 +117,19 @@ class StockBot:
 
     def get_close_price(self, client_index: int, index=-1):
         closing_price = self.clients[client_index].get_closing_price()
-        return closing_price[index]
+        return closing_price.iloc[index]
+
+    def get_open_price(self, client_index: int, index=-1):
+        open_price = self.clients[client_index].get_opening_price()
+        return open_price.iloc[index]
 
     def get_low_price(self, client_index: int, index=-1):
         low_price = self.clients[client_index].get_low_price()
-        return low_price[index]
+        return low_price.iloc[index]
 
     def get_high_price(self, client_index: int, index=-1):
         high_price = self.clients[client_index].get_high_price()
-        return high_price[index]
+        return high_price.iloc[index]
 
     def set_tp_multiplier(self, val: float):
         self.take_profit_multiplier = val
@@ -257,7 +261,7 @@ class StockBot:
 
     def is_buy(self, client_index: int, index: int = None) -> bool:
         if index is None:
-            index = self.get_num_candles()-1 if index is None else index
+            index = self.get_num_candles(client_index)-1 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
         if is_begin_day:
             return False
@@ -272,7 +276,7 @@ class StockBot:
 
     def is_sell(self, client_index: int, index: int = None, sell_on_touch=SELL_ON_TOUCH) -> bool:
         if index is None:
-            index = self.get_num_candles()-1 if index is None else index
+            index = self.get_num_candles(client_index)-1 if index is None else index
         if self.clients[client_index].is_day_last_transaction(index):
             return True
         curr_index = self.get_num_candles(client_index) - 1 if index is None else index
@@ -291,9 +295,9 @@ class StockBot:
         client_latest_trade = self.latest_trade[client_index]
         return client_latest_trade[STOCK_PRICE]
 
-    def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None) -> int:
+    def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None, real_time=False) -> int:
         if index is None:
-            index = self.get_num_candles()-1 if index is None else index
+            index = self.get_num_candles(client_index)-1 if index is None else index
         closing_prices = self.clients[client_index].get_closing_price()
         stock_price = self.get_close_price(client_index, index)
 
@@ -336,11 +340,17 @@ class StockBot:
                          f"Buy amount: {self.latest_trade[client_index][AMOUNT]}\n"
                          f"Stock price: {stock_price}")
 
+        if real_time:
+            self.clients[client_index].buy_order(self.latest_trade[client_index][NUM_STOCKS],
+                                                 float(format(self.take_profit, '.2f')),
+                                                 float(format(self.stop_loss, '.2f')),
+                                                 price=float(format(self.get_close_price(client_index, index-1), '.2f')))
+
         return TRADE_COMPLETE
 
-    def sell(self, client_index: int, index: int = None) -> int:
+    def sell(self, client_index: int, index: int = None, real_time=False) -> int:
         if index is None:
-            index = self.get_num_candles()-1 if index is None else index
+            index = self.get_num_candles(client_index)-1 if index is None else index
         if self.status[client_index] != SellStatus.BOUGHT:
             self.logger.info("Tried selling before buying a stock")
             return 0
@@ -464,13 +474,13 @@ class StockBot:
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
                     condition = self.is_buy(client_index=j)
                     if condition:
-                        ret_val = self.buy(sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j)
+                        ret_val = self.buy(sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j, real_time=True)
                         if ret_val == TRADE_COMPLETE:  # in case trade was not complete
                             self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name {self.clients[j].name}\n")
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
                     condition = self.is_sell(client_index=j)
                     if condition:
-                        profit = self.sell(client_index=j)
+                        profit = self.sell(client_index=j, real_time=True)
                         self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if profit > 0 else LOSS}\nStock name {self.clients[j].name}\n")
                 if self.clients[j].is_day_last_transaction(-1):
                     is_eod = True
@@ -553,9 +563,9 @@ def filter_stocks(stocks: List[str], val: float):
 
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
-    period = f'{1 if REAL_TIME else 60}d'
+    period = f'{"3 D" if REAL_TIME else "60d"}'
 
-    from stock_client import StockClientYfinance
+    from stock_client import StockClientYfinance, StockClientInteractive
 
     if FILTER_STOCKS[2]:
         stock_list, filter_val = FILTER_STOCKS[:2]
@@ -563,7 +573,7 @@ if __name__ == '__main__':
         print(f"stocks that were filtered: {filtered}")
 
     if RUN_ROBOT:
-        clients = [StockClientYfinance(name=name) for name in STOCKS]
+        clients = [StockClientYfinance(name=name) if not REAL_TIME else StockClientInteractive(name=name) for name in STOCKS]
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
         if REAL_TIME:

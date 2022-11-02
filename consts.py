@@ -21,7 +21,7 @@ OUTPUT_PLOT = True
 FILTER_STOCKS = (["AMD", "soxl", "soxs", "wix", "aapl"], 0.09, False)
 RUN_ROBOT = True
 
-USE_RUN_WINS = True
+USE_RUN_WINS = False
 RUN_WINS_TAKE_PROFIT_MULTIPLIER = 0.5
 RUN_WINS_PERCENT = 0.5
 
@@ -31,11 +31,11 @@ RSI_PARAMS = 14  # length
 
 STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]
-DEFAULT_CRITERIA_LIST = STRATEGY_2
+DEFAULT_CRITERIA_LIST = STRATEGY_1
 
-STOCKS = [LONG_STOCK_NAME, SHORT_STOCK_NAME]
+STOCKS = ["SPY"]
 
-REAL_TIME = False
+REAL_TIME = True
 
 SELL_ON_TOUCH = True
 
