@@ -258,6 +258,12 @@ class StockClientYfinance(StockClient):
             self.candles = self.candles.append(row)
         return True
 
+    def buy_order(self, quantity: float, stop_loss: float, take_profit: float, price: float = None):
+        pass
+
+    def sell_order(self):
+        pass
+
 
 class StockClientInteractive(StockClient):
     def __init__(self, name: str, demo=True):
