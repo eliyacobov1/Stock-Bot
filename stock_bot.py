@@ -307,14 +307,14 @@ class StockBot:
     def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None, real_time=False) -> int:
         if index is None:
             index = self.get_num_candles(client_index)-1 if index is None else index
-        closing_prices = self.clients[client_index].get_closing_price()
+        low_prices = self.clients[client_index].get_low_price()
         stock_price = self.get_close_price(client_index, index)
 
         if sl_min_rel_pos is None:
-            if len(closing_prices) < STOP_LOSS_RANGE:
-                stop_loss_range = closing_prices
+            if len(low_prices) < STOP_LOSS_RANGE:
+                stop_loss_range = low_prices
             else:
-                stop_loss_range = closing_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
+                stop_loss_range = low_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
             local_min = np.min(stop_loss_range)
         else:
             local_min = self.get_close_price(client_index, index+sl_min_rel_pos)
