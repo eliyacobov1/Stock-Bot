@@ -35,7 +35,8 @@ DEFAULT_CRITERIA_LIST = STRATEGY_1
 
 STOCKS = ["SPY"]
 
-REAL_TIME = True
+REAL_TIME = False
+ALWAYS_BUY = False  # for debugging
 
 SELL_ON_TOUCH = True
 

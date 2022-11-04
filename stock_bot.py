@@ -15,7 +15,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
-                    REAL_TIME, SELL_ON_TOUCH)
+                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -91,6 +91,7 @@ class StockBot:
 
         self.data_changed = True  # indicates whether new candle data was fetched or not
         self.criteria_indices = None
+        self.block_buy = True
 
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
         self.criteria_func_data_mapping = {CRITERIA.RSI: self.get_rsi_criterion,
@@ -260,6 +261,8 @@ class StockBot:
         return indices
 
     def is_buy(self, client_index: int, index: int = None) -> bool:
+        if ALWAYS_BUY:
+            return True
         if index is None:
             index = self.get_num_candles(client_index)-1 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
@@ -272,7 +275,13 @@ class StockBot:
         approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed else self.criteria_indices
         curr_index = self.get_num_candles()-1 if index is None else index
         # check if latest index which represents the current candle meets the criteria
-        return np.isin([curr_index], approved_indices)[0]
+        ret_val = np.isin([curr_index], approved_indices)[0]
+        if not self.block_buy:
+            if not ret_val:
+                self.block_buy = False
+            else:
+                self.logger.info(f"Blocking buy operation; criteria already met\n")
+        return ret_val and self.block_buy
 
     def is_sell(self, client_index: int, index: int = None, sell_on_touch=SELL_ON_TOUCH) -> bool:
         if index is None:
@@ -346,6 +355,7 @@ class StockBot:
                                                  float(format(self.stop_loss, '.2f')),
                                                  price=float(format(self.get_close_price(client_index, index-1), '.2f')))
 
+        self.block_buy = True
         return TRADE_COMPLETE
 
     def sell(self, client_index: int, index: int = None, real_time=False) -> int:
