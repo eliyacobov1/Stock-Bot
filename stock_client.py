@@ -266,16 +266,25 @@ class StockClientYfinance(StockClient):
 
 
 class StockClientInteractive(StockClient):
-    def __init__(self, name: str, demo=True):
+    def __init__(self, name: str, demo=True, client: ib_insync.IB = None):
         super(StockClient, self).__init__()
-        ib = ib_insync.IB()
-        ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=1)
+        if client is not None:
+            ib = client
+        else:
+            ib = ib_insync.IB()
+        if not ib.isConnected():
+            ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=1)
         self.name = name
         self._stock = ib_insync.Stock(self.name, 'SMART', 'USD')
         self._client = ib
         self._res = None
         self.current_orders = {}
         self.demo = demo
+
+    @staticmethod
+    def init_client() -> ib_insync.IB:
+        ib = ib_insync.IB()
+        return ib
 
     def get_closing_price(self) -> pd.Series:
         return self.candles['close']

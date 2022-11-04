@@ -276,12 +276,12 @@ class StockBot:
         curr_index = self.get_num_candles()-1 if index is None else index
         # check if latest index which represents the current candle meets the criteria
         ret_val = np.isin([curr_index], approved_indices)[0]
-        if not self.block_buy:
+        if self.block_buy:
             if not ret_val:
                 self.block_buy = False
             else:
                 self.logger.info(f"Blocking buy operation; criteria already met\n")
-        return ret_val and self.block_buy
+        return ret_val and not self.block_buy
 
     def is_sell(self, client_index: int, index: int = None, sell_on_touch=SELL_ON_TOUCH) -> bool:
         if index is None:
@@ -583,7 +583,8 @@ if __name__ == '__main__':
         print(f"stocks that were filtered: {filtered}")
 
     if RUN_ROBOT:
-        clients = [StockClientYfinance(name=name) if not REAL_TIME else StockClientInteractive(name=name) for name in STOCKS]
+        real_time_client = StockClientInteractive.init_client() if REAL_TIME else None
+        clients = [StockClientYfinance(name=name) if not REAL_TIME else StockClientInteractive(name=name, client=real_time_client) for name in STOCKS]
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
         if REAL_TIME:
