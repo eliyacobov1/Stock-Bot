@@ -91,7 +91,7 @@ class StockBot:
 
         self.data_changed = True  # indicates whether new candle data was fetched or not
         self.criteria_indices = None
-        self.block_buy = True
+        self.block_buy = False
 
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
         self.criteria_func_data_mapping = {CRITERIA.RSI: self.get_rsi_criterion,
