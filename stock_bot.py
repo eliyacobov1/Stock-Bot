@@ -264,7 +264,7 @@ class StockBot:
         if ALWAYS_BUY:
             return True
         if index is None:
-            index = self.get_num_candles(client_index)-1 if index is None else index
+            index = self.get_num_candles(client_index)-2 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
         if is_begin_day:
             return False
