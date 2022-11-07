@@ -425,10 +425,10 @@ class StockClientInteractive(StockClient):
             self.candles.drop(self.candles.tail(n=1).index, inplace=True)
         elif len(df_candles) > 1 and self.parse_date(str(df_candles.iloc[-2].date)) == latest_date:
             self.candles.drop(self.candles.tail(n=1).index, inplace=True)
-            self.candles = self.candles.append(df_candles.iloc[-2])
+            self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
         elif len(df_candles) > 1:
-            self.candles = self.candles.append(df_candles.iloc[-2])
-        self.candles = self.candles.append(df_candles.iloc[-1])
+            self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
+        self.candles = self.candles.append(df_candles.iloc[-1], ignore_index=True)
         return True
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
