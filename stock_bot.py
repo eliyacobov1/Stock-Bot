@@ -273,9 +273,8 @@ class StockBot:
             return False
         op = '|' if self.is_bar_strategy() else '&'
         approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed else self.criteria_indices
-        curr_index = self.get_num_candles()-1 if index is None else index
         # check if latest index which represents the current candle meets the criteria
-        ret_val = np.isin([curr_index], approved_indices)[0]
+        ret_val = np.isin([index], approved_indices)[0]
         if self.block_buy:
             if not ret_val:
                 self.block_buy = False
