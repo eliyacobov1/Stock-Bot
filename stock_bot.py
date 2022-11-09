@@ -114,7 +114,7 @@ class StockBot:
 
         # initialize logger
         logging.basicConfig(**logger_options)
-        self.logger = logging.getLogger('start logging')
+        self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
 
     def get_close_price(self, client_index: int, index=-1):
@@ -161,6 +161,7 @@ class StockBot:
                 self.criteria.append(c)
 
     def get_rsi_criterion(self, client_index: int):
+        self.logger.info("calculating RSI")
         s_close_old = pd.Series(self.clients[client_index].get_closing_price())
 
         length = RSI_PARAMS
@@ -169,6 +170,7 @@ class StockBot:
         return np.where(rsi_results > 50)
 
     def get_supertrend_criterion(self, client_index: int):
+        self.logger.info("calculating Supertrend")
         high = self.clients[client_index].get_high_price()
         low = self.clients[client_index].get_low_price()
         close = self.clients[client_index].get_closing_price()
@@ -184,6 +186,7 @@ class StockBot:
         return np.array(indices)
 
     def get_macd_criterion(self, client_index: int):
+        self.logger.info("calculating macd")
         close_prices = self.clients[client_index].get_closing_price()
 
         fast, slow, signal = MACD_PARAMS
@@ -197,10 +200,12 @@ class StockBot:
         return indices_as_nd
 
     def get_ema(self, client_index: int):
+        self.logger.info("calculating EMA\n")
         self.ema[client_index] = ema(self.clients[client_index].get_closing_price(), EMA_LENGTH)
         return self.ema[client_index]
 
     def get_inside_bar_criterion(self, client_index: int):
+        self.logger.info("calculating INSIDE-BAR criterion")
         close_prices = self.clients[client_index].get_closing_price()
         open_prices = self.clients[client_index].get_opening_price()
         high_prices = self.clients[client_index].get_high_price()
@@ -221,6 +226,7 @@ class StockBot:
         return indices
 
     def get_reversal_bar_criterion(self, client_index: int):
+        self.logger.info("calculating REVERSAL-BAR criterion")
         close_prices = self.clients[client_index].get_closing_price()
         high_prices = self.clients[client_index].get_high_price()
         low_prices = self.clients[client_index].get_low_price()
@@ -262,6 +268,7 @@ class StockBot:
         return indices
 
     def is_buy(self, client_index: int, index: int = None) -> bool:
+        self.logger.info("performing is_buy check...")
         if ALWAYS_BUY:
             return True
         if index is None:
@@ -305,6 +312,7 @@ class StockBot:
         return client_latest_trade[STOCK_PRICE]
 
     def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None, real_time=False) -> int:
+        self.logger.info("buying...")
         if index is None:
             index = self.get_num_candles(client_index)-1 if index is None else index
         low_prices = self.clients[client_index].get_low_price()
@@ -359,6 +367,7 @@ class StockBot:
         return TRADE_COMPLETE
 
     def sell(self, client_index: int, index: int = None, real_time=False) -> int:
+        self.logger.info("selling...")
         if index is None:
             index = self.get_num_candles(client_index)-1 if index is None else index
         if self.status[client_index] != SellStatus.BOUGHT:

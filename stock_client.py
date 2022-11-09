@@ -1,4 +1,5 @@
 import datetime
+import logging
 
 from functools import lru_cache
 
@@ -280,6 +281,7 @@ class StockClientInteractive(StockClient):
         self._res = None
         self.current_orders = {}
         self.demo = demo
+        self.logger = logging.getLogger('__main__')
 
     @staticmethod
     def init_client() -> ib_insync.IB:
@@ -414,6 +416,7 @@ class StockClientInteractive(StockClient):
         return self.candles.shape[0]
 
     def add_candle(self) -> True:
+        self.logger.info("fetching latest candle data...\n")
         candles = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(self._res),
                                                  barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=False)
         while len(candles) == 0:
@@ -432,6 +435,7 @@ class StockClientInteractive(StockClient):
         return True
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
+        self.logger.info("fetching initial candle data...\n")
         self._res = res
         parsed_res = self.res_to_str(res)
 
