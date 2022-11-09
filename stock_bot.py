@@ -71,6 +71,9 @@ class StockBot:
         self.take_profit = None
         self.status = [SellStatus.NEITHER for i in range(len(self.clients))]
 
+        self.data_changed = [True for i in range(len(self.clients))]  # indicates whether new candle data was fetched or not
+        self.criteria_indices = [None for i in range(len(self.clients))]
+
         self.set_candle_data()
 
         # "let the wins run" strategy parameters
@@ -90,8 +93,6 @@ class StockBot:
         self.num_gains = self.num_eod_gains = self.num_losses = self.num_eod_losses = 0
         self.trades_per_day = np.full(num_candles, -1)
 
-        self.data_changed = True  # indicates whether new candle data was fetched or not
-        self.criteria_indices = None
         self.block_buy = False
 
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
@@ -147,7 +148,8 @@ class StockBot:
         if self.period:
             for c in self.clients:
                 c.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
-        self.data_changed = True
+        for i in range(len(self.data_changed)):
+            self.data_changed[i] = True
 
     def set_criteria(self, criteria: Optional[List[str]]) -> None:
         if criteria is None:
@@ -262,8 +264,8 @@ class StockBot:
                 criteria_union = np.concatenate((indices, criterion_indices))
                 indices = np.unique(criteria_union)
 
-        self.criteria_indices = indices
-        self.data_changed = False  # criteria are now updated according to the latest change
+        self.criteria_indices[client_index] = indices
+        self.data_changed[client_index] = False  # criteria are now updated according to the latest change
 
         return indices
 
@@ -280,7 +282,7 @@ class StockBot:
         if is_end_day:
             return False
         op = '|' if self.is_bar_strategy() else '&'
-        approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed else self.criteria_indices
+        approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed[client_index] else self.criteria_indices[client_index]
         # check if latest index which represents the current candle meets the criteria
         ret_val = np.isin([index], approved_indices)[0]
         if self.block_buy:
@@ -483,11 +485,15 @@ class StockBot:
         self.log_summary()
         return self.capital
 
+    def add_candle(self, client_index: int):
+        self.clients[client_index].add_candle()
+        self.data_changed[client_index] = True
+
     async def main_loop(self) -> float:
         is_eod = False
         while not is_eod:
             for j in range(len(self.clients)):
-                self.clients[j].add_candle()
+                self.add_candle(client_index=j)
                 self.logger.info(
                     f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
