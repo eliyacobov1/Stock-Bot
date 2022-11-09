@@ -1,4 +1,5 @@
-import time
+import asyncio
+import nest_asyncio
 from typing import List, Optional, Tuple, Dict
 
 import numpy as np
@@ -473,7 +474,7 @@ class StockBot:
         self.log_summary()
         return self.capital
 
-    def main_loop(self) -> float:
+    async def main_loop(self) -> float:
         is_eod = False
         while not is_eod:
             for j in range(len(self.clients)):
@@ -493,7 +494,7 @@ class StockBot:
                         self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if profit > 0 else LOSS}\nStock name {self.clients[j].name}\n")
                 if self.clients[j].is_day_last_transaction(-1):
                     is_eod = True
-            time.sleep(10)
+            await asyncio.sleep(10)
         return self.capital
 
     def log_summary(self):
@@ -587,7 +588,8 @@ if __name__ == '__main__':
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
         if REAL_TIME:
-            res = sb.main_loop()
+            nest_asyncio.apply()
+            res = asyncio.run(sb.main_loop())
         else:
             res = sb.calc_revenue()
 
