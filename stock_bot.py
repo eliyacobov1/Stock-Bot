@@ -269,8 +269,9 @@ class StockBot:
 
         return indices
 
-    def is_buy(self, client_index: int, index: int = None) -> bool:
-        self.logger.info("performing is_buy check...")
+    def is_buy(self, client_index: int, index: int = None, real_time: bool = False) -> bool:
+        if real_time:
+            self.logger.info("performing is_buy check...")
         if ALWAYS_BUY:
             return True
         if index is None:
@@ -497,7 +498,7 @@ class StockBot:
                 self.logger.info(
                     f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
-                    condition = self.is_buy(client_index=j)
+                    condition = self.is_buy(client_index=j, real_time=True)
                     if condition:
                         ret_val = self.buy(sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j, real_time=True)
                         if ret_val == TRADE_COMPLETE:  # in case trade was not complete
