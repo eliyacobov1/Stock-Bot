@@ -362,12 +362,19 @@ class StockBot:
 
         if real_time:
             self.clients[client_index].buy_order(self.latest_trade[client_index][NUM_STOCKS],
-                                                 float(format(self.take_profit, '.2f')),
-                                                 float(format(self.stop_loss, '.2f')),
+                                                 stop_loss=float(format(self.stop_loss, '.2f')),
                                                  price=float(format(self.get_close_price(client_index, index-1), '.2f')))
 
         self.block_buy = True
         return TRADE_COMPLETE
+
+    def set_take_profit(self, take_profit: float):
+        self.logger.info(f"setting take-profit to {take_profit}")
+        self.take_profit = take_profit
+
+    def set_stop_loss(self, stop_loss: float):
+        self.logger.info(f"setting stop-loss to {stop_loss}")
+        self.stop_loss = stop_loss
 
     def sell(self, client_index: int, index: int = None, real_time=False) -> int:
         self.logger.info("selling...")
@@ -605,6 +612,9 @@ if __name__ == '__main__':
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
         if REAL_TIME:
             nest_asyncio.apply()
+            for client in clients:
+                if type(client) == StockClientInteractive:
+                    client.bind_tp_observer(sb.set_take_profit)
             res = asyncio.run(sb.main_loop())
         else:
             res = sb.calc_revenue()

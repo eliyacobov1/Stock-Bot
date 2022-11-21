@@ -8,6 +8,7 @@ import ssl
 import smtplib
 
 from secret import EMAIL_PASSWORD
+from consts import TAKE_PROFIT_MULTIPLIER, STOP_LOSS_PERCENTAGE_MARGIN
 
 EMAIL_SENDER = 'eleinvestgroup@gmail.com'
 EMAIL_RECEIVER = ['eladbeber619@gmail.com', 'elad_beber@walla.com', 'eli.yacobov1@gamil.com']
@@ -57,3 +58,11 @@ def send_email(subject=None, body=None):
     with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
         smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
         smtp.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, em.as_string())
+
+
+def get_take_profit(curr_price, stop_loss, tp_multiplier=TAKE_PROFIT_MULTIPLIER):
+    """
+    calculates the take-profit based off the current price and stop loss
+    """
+    loss_percentage = 1 - (stop_loss / curr_price)
+    return curr_price * ((loss_percentage * tp_multiplier) + 1)

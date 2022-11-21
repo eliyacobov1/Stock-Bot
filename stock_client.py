@@ -5,12 +5,12 @@ from functools import lru_cache
 
 import yfinance as yf
 import ib_insync
-from typing import List, Union
+from typing import List, Union, Optional, Callable
 from abc import ABC, abstractmethod
 import pandas as pd
 
-from consts import TimeRes
-from utils import convert_timestamp_format
+from consts import TimeRes, TradeTypes
+from utils import convert_timestamp_format, get_take_profit
 
 
 class StockClient(ABC):
@@ -100,7 +100,7 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
-    def buy_order(self, quantity: float, stop_loss: float, take_profit: float, price: float = None):
+    def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
         pass
 
     @abstractmethod
@@ -259,7 +259,7 @@ class StockClientYfinance(StockClient):
             self.candles = self.candles.append(row)
         return True
 
-    def buy_order(self, quantity: float, stop_loss: float, take_profit: float, price: float = None):
+    def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
         pass
 
     def sell_order(self):
@@ -278,10 +278,17 @@ class StockClientInteractive(StockClient):
         self.name = name
         self._stock = ib_insync.Stock(self.name, 'SMART', 'USD')
         self._client = ib
+
+        self._take_profit_observers: List[Callable[[float], None]] = []  # observers will be triggered when take profit is calculated
         self._res = None
-        self.current_orders = {}
+
+        self.current_trades = {TradeTypes.BUY: [], TradeTypes.SELL: []}
+
         self.demo = demo
         self.logger = logging.getLogger('__main__')
+
+    def bind_tp_observer(self, callback: Callable[[float], None]):
+        self._take_profit_observers.append(callback)
 
     @staticmethod
     def init_client() -> ib_insync.IB:
@@ -313,9 +320,9 @@ class StockClientInteractive(StockClient):
     def get_candle_date(self, i: int) -> str:
         return str(self.candles.iloc[i].date)
 
-    def buy_order(self, quantity: float, take_profit: float, stop_loss: float, price: float = None, market_order=True):
+    def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
         action = 'BUY'
-        reverse_action = 'BUY' if action == 'SELL' else 'SELL'
+        reverse_action = 'SELL'
         if market_order:
             parent = ib_insync.MarketOrder(
                 action, quantity,
@@ -326,14 +333,8 @@ class StockClientInteractive(StockClient):
             parent = ib_insync.LimitOrder(
                 action, quantity, price,
                 orderId=self._client.client.getReqId(),
-                transmit=True,
+                transmit=False,
                 outsideRth=True)
-        tp_order = ib_insync.LimitOrder(
-            reverse_action, quantity, take_profit,
-            orderId=self._client.client.getReqId(),
-            transmit=False,
-            parentId=parent.orderId,
-            outsideRth=True)
         sl_order = ib_insync.StopOrder(
             reverse_action, quantity, stop_loss,
             orderId=self._client.client.getReqId(),
@@ -342,21 +343,78 @@ class StockClientInteractive(StockClient):
             outsideRth=True)
 
         parent_trade = self._execute_order(parent, wait_until_done=False)
-        tp_trade = self._execute_order(tp_order)
+        parent_trade.fillEvent += self.buy_callback
+        self._set_trade(trade_type=TradeTypes.BUY, trade=parent_trade, append=True)
+
         sl_trade = self._execute_order(sl_order)
+        sl_trade.fillEvent += self.sell_callback
+        self._set_trade(trade_type=TradeTypes.SELL, trade=sl_trade, append=True)
 
-        # parent_trade.fillEvent += lambda x, y: print(x)
-        parent_trade.fillEvent += self.analyze_output
-        tp_trade.fillEvent += lambda x, y: print("sold")
-        sl_trade.fillEvent += lambda x, y: print("sold")
+        return parent_trade, sl_trade
 
-        return ib_insync.BracketOrder(parent, tp_order, sl_order)
+    def _set_trade(self, trade_type: TradeTypes, trade: ib_insync.Trade, append=False):
+        if append:
+            self.current_trades[trade_type].append(trade)
+        else:
+            self.current_trades[trade_type] = [trade]
 
-    def analyze_output(self, trade: ib_insync.Trade, fill: ib_insync.Fill):
-        price = fill.execution.price
+    def _reset_trades(self, trade_type: TradeTypes):
+        self.current_trades[trade_type].clear()
+
+    def get_curr_buy_price(self) -> Optional[float]:
+        trade: ib_insync.Trade = self.current_trades[TradeTypes.BUY][0]
+        return trade.fills[0].execution.avgPrice if trade.fills else None
+
+    def get_curr_stop_loss_price(self) -> float:
+        trade: ib_insync.Trade = [trade for trade in self.current_trades[TradeTypes.SELL] if type(trade.order) == ib_insync.StopOrder][0]
+        return trade.order.auxPrice
+
+    def get_curr_take_profit_price(self) -> float:
+        trade: ib_insync.Trade = [trade for trade in self.current_trades[TradeTypes.SELL] if type(trade.order) == ib_insync.LimitOrder][0]
+        return trade.order.auxPrice
+
+    def buy_callback(self, trade: ib_insync.Trade, fill: ib_insync.Fill):
+        price = fill.execution.avgPrice
+        stop_loss = self.get_curr_stop_loss_price()
+
         status = trade.orderStatus.status
-        self.current_orders[trade.order.orderId] = trade.order
+
+        print(f"!!!!!! landing ing analyze buy with avg price of {price}, status {status}")
+
+        # transmit the take-profit sell order
+        take_profit = float(format(get_take_profit(curr_price=price, stop_loss=stop_loss), '.2f'))
+        for callback in self._take_profit_observers:  # update observers with the newly calculated take-profit
+            callback(take_profit)
+
+        quantity = trade.order.totalQuantity
+        trade_id = trade.order.orderId
+        tp_order = ib_insync.LimitOrder(
+            'SELL', quantity, take_profit,
+            orderId=self._client.client.getReqId(),
+            # parentId=trade_id,  # TODO check this
+            transmit=True,
+            outsideRth=True)
+
+        tp_trade = self._execute_order(tp_order)
+        tp_trade.fillEvent += self.sell_callback
+        self._set_trade(trade_type=TradeTypes.SELL, trade=tp_trade, append=True)
+
         print(f"API update: order bought for {price} with status {status}")
+
+    def sell_callback(self, trade: ib_insync.Trade, fill: ib_insync.Fill):
+        self._reset_trades(trade_type=TradeTypes.BUY)
+        self._reset_trades(trade_type=TradeTypes.SELL)
+
+        price = fill.execution.avgPrice
+        status = trade.orderStatus.status
+
+        for t in self.current_trades[TradeTypes.SELL]:
+            if t.order.orderId != trade.order.orderId and not t.isActive():
+                self._client.cancelOrder(t.order)
+
+        # TODO assert that all other sales are canceled and if not, cancel them
+
+        print(f"API update: order sold for {price} with status {status}")
 
     def sell_order(self):
         pass

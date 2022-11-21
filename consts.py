@@ -81,6 +81,11 @@ class SellStatus(Enum):
     NEITHER = 2
 
 
+class TradeTypes(Enum):
+    BUY = 0
+    SELL = 1
+
+
 class CRITERIA(Enum):
     MACD = 1
     RSI = 2
