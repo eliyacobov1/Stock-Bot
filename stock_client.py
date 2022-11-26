@@ -377,7 +377,8 @@ class StockClientInteractive(StockClient):
         return trade.order.auxPrice
 
     def buy_callback(self, trade: ib_insync.Trade, fill: ib_insync.Fill):
-        price = fill.execution.avgPrice
+        # price = fill.execution.avgPrice
+        price = trade.orderStatus.avgFillPrice
         stop_loss = self.get_curr_stop_loss_price()
 
         status = trade.orderStatus.status
