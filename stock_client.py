@@ -403,7 +403,6 @@ class StockClientInteractive(StockClient):
 
     def sell_callback(self, trade: ib_insync.Trade, fill: ib_insync.Fill):
         self._reset_trades(trade_type=TradeTypes.BUY)
-        self._reset_trades(trade_type=TradeTypes.SELL)
 
         price = fill.execution.avgPrice
         status = trade.orderStatus.status
@@ -411,6 +410,8 @@ class StockClientInteractive(StockClient):
         for t in self.current_trades[TradeTypes.SELL]:
             if t.order.orderId != trade.order.orderId and not t.isActive():
                 self._client.cancelOrder(t.order)
+
+        self._reset_trades(trade_type=TradeTypes.SELL)
 
         # TODO assert that all other sales are canceled and if not, cancel them
 
