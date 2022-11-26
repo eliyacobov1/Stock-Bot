@@ -343,14 +343,17 @@ class StockClientInteractive(StockClient):
             outsideRth=True)
 
         parent_trade = self._execute_order(parent, wait_until_done=False)
-        parent_trade.fillEvent += self.buy_callback
+        parent_trade.filledEvent += self.buy_callback
         self._set_trade(trade_type=TradeTypes.BUY, trade=parent_trade, append=True)
 
         sl_trade = self._execute_order(sl_order)
-        sl_trade.fillEvent += self.sell_callback
+        sl_trade.filledEvent += self.sell_callback
         self._set_trade(trade_type=TradeTypes.SELL, trade=sl_trade, append=True)
 
         return parent_trade, sl_trade
+
+    def sell_order(self):
+        pass
 
     def _set_trade(self, trade_type: TradeTypes, trade: ib_insync.Trade, append=False):
         if append:
@@ -396,7 +399,7 @@ class StockClientInteractive(StockClient):
             outsideRth=True)
 
         tp_trade = self._execute_order(tp_order)
-        tp_trade.fillEvent += self.sell_callback
+        tp_trade.filledEvent += self.sell_callback
         self._set_trade(trade_type=TradeTypes.SELL, trade=tp_trade, append=True)
 
         self.logger.info(f"API update: order bought for {price} with status {status}")
