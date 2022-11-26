@@ -348,15 +348,33 @@ class StockClientInteractive(StockClient):
 
         sl_trade = self._execute_order(sl_order)
         sl_trade.filledEvent += self.sell_callback
+        sl_trade.cancelledEvent += self.cancel_callback
         self._set_trade(trade_type=TradeTypes.SELL, trade=sl_trade, append=True)
 
         return parent_trade, sl_trade
 
-    def sell_order(self):
-        pass
+    def _resubmit_trade(self, trade: ib_insync.Trade):
+        order = trade.order
+        order.orderId = self._client.client.getReqId()
 
-    def _set_trade(self, trade_type: TradeTypes, trade: ib_insync.Trade, append=False):
-        if append:
+        updated_trade = self._execute_order(order, wait_until_done=False)
+        updated_trade.filledEvent += self.sell_callback
+        self._set_trade(trade_type=TradeTypes.SELL, trade=updated_trade, replace=True)
+
+    def cancel_callback(self, trade: ib_insync.Trade):
+        action = trade.order.action
+        if action == 'BUY':
+            pass
+        elif action == 'SELL':
+            self._resubmit_trade(trade)
+
+    def _set_trade(self, trade_type: TradeTypes, trade: ib_insync.Trade, append=False, replace=False):
+        if replace:
+            # first, remove the existing trade
+            for i in range(len(self.current_trades[trade_type])):
+                if self.current_trades[trade_type][i].order.orderId == trade.order.orderId:
+                    del self.current_trades[trade_type][i]
+        if append or replace:
             self.current_trades[trade_type].append(trade)
         else:
             self.current_trades[trade_type] = [trade]
@@ -376,7 +394,7 @@ class StockClientInteractive(StockClient):
         trade: ib_insync.Trade = [trade for trade in self.current_trades[TradeTypes.SELL] if type(trade.order) == ib_insync.LimitOrder][0]
         return trade.order.auxPrice
 
-    def buy_callback(self, trade: ib_insync.Trade, fill: ib_insync.Fill):
+    def buy_callback(self, trade: ib_insync.Trade):
         # price = fill.execution.avgPrice
         price = trade.orderStatus.avgFillPrice
         stop_loss = self.get_curr_stop_loss_price()
