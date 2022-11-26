@@ -379,7 +379,7 @@ class StockClientInteractive(StockClient):
 
         status = trade.orderStatus.status
 
-        print(f"!!!!!! landing ing analyze buy with avg price of {price}, status {status}")
+        self.logger.info(f"!!!!!! landing ing analyze buy with avg price of {price}, status {status}")
 
         # transmit the take-profit sell order
         take_profit = float(format(get_take_profit(curr_price=price, stop_loss=stop_loss), '.2f'))
@@ -399,7 +399,7 @@ class StockClientInteractive(StockClient):
         tp_trade.fillEvent += self.sell_callback
         self._set_trade(trade_type=TradeTypes.SELL, trade=tp_trade, append=True)
 
-        print(f"API update: order bought for {price} with status {status}")
+        self.logger.info(f"API update: order bought for {price} with status {status}")
 
     def sell_callback(self, trade: ib_insync.Trade, fill: ib_insync.Fill):
         self._reset_trades(trade_type=TradeTypes.BUY)
@@ -415,17 +415,14 @@ class StockClientInteractive(StockClient):
 
         # TODO assert that all other sales are canceled and if not, cancel them
 
-        print(f"API update: order sold for {price} with status {status}")
-
-    def sell_order(self):
-        pass
+        self.logger.info(f"API update: order sold for {price} with status {status}")
 
     def _execute_order(self, order: ib_insync.Order, wait_until_done=False) -> ib_insync.Trade:
         trade = self.client.placeOrder(self._stock, order)
         if wait_until_done:
             while not trade.isDone():
                 self._client.sleep(1)
-                print("waiting")
+                self.logger.info("waiting")
                 self._client.waitOnUpdate()
         return trade
 
@@ -479,7 +476,7 @@ class StockClientInteractive(StockClient):
         candles = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(self._res),
                                                  barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=False)
         while len(candles) == 0:
-            print("waiting for data")
+            self.logger.info("waiting for data")
             self._client.sleep(2)
         df_candles = ib_insync.util.df(candles)
         latest_date = self.parse_date(candle_index=-1)
