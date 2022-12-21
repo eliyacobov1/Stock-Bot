@@ -449,6 +449,14 @@ class StockBot:
 
         return profit
 
+    def cancel_trade(self, client_index: int):
+        # TODO fill missing logic
+        if self.status == SellStatus.BOUGHT:
+            self.capital += self.latest_trade[client_index][AMOUNT]  # trade cancelled -> money was not spent
+            self.status = SellStatus.SOLD
+        else:
+            pass
+
     def is_bar_strategy(self):
         return CRITERIA.REVERSAL_BAR in self.criteria and\
                CRITERIA.INSIDE_BAR in self.criteria and\
@@ -513,7 +521,7 @@ class StockBot:
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
                     condition = self.is_sell(client_index=j)
                     if condition:
-                        profit = self.sell(client_index=j, real_time=True)
+                        profit = self.sell(client_index=j)
                         self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if profit > 0 else LOSS}\nStock name {self.clients[j].name}\n")
                 if self.clients[j].is_day_last_transaction(-1):
                     is_eod = True
@@ -612,9 +620,11 @@ if __name__ == '__main__':
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
         if REAL_TIME:
             nest_asyncio.apply()
-            for client in clients:
+            for i, client in enumerate(clients):
                 if type(client) == StockClientInteractive:
                     client.bind_tp_observer(sb.set_take_profit)
+                    client.bind_sell_observer(lambda i=i: sb.sell(client_index=i))
+                    client.bind_cancel_observer(lambda i=i: sb.cancel_trade(client_index=i))
             res = asyncio.run(sb.main_loop())
         else:
             res = sb.calc_revenue()
