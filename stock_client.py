@@ -371,11 +371,11 @@ class StockClientInteractive(StockClient):
         self._set_trade(trade_type=TradeTypes.SELL, trade=updated_trade, replace=True)
 
     def cancel_callback(self, trade: ib_insync.Trade):
-        self.logger.info("Order Cancelled (client)!")
+        self.logger.info(f"Order with id {trade.order.orderId}, type {trade.order.orderType} Cancelled (client)!")
         action = trade.order.action
         if action == 'BUY':
             self._cancel_observer()
-        elif action == 'SELL':
+        elif action == 'SELL':  # TODO the problems is here
             self._resubmit_trade(trade)
 
     def _set_trade(self, trade_type: TradeTypes, trade: ib_insync.Trade, append=False, replace=False):
@@ -440,6 +440,7 @@ class StockClientInteractive(StockClient):
         return cash
 
     def sell_callback(self, trade: ib_insync.Trade):
+        print(f"selling order of type {trade.order.orderType} (client)")
         self._reset_trades(trade_type=TradeTypes.BUY)
 
         price = trade.orderStatus.avgFillPrice  # TODO check this
@@ -448,7 +449,7 @@ class StockClientInteractive(StockClient):
         # assert that all other sales are canceled and if not, cancel them
         for t in self.current_trades[TradeTypes.SELL]:
             if t.order.orderId != trade.order.orderId:  # and not t.isActive()
-                print(f"should cancel order type {trade.order.orderType}")
+                print(f"should cancel order type {t.order.orderType}")
                 self._client.cancelOrder(t.order)
 
         self._reset_trades(trade_type=TradeTypes.SELL)

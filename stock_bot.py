@@ -1,4 +1,6 @@
 import asyncio
+import sys
+
 import nest_asyncio
 from typing import List, Optional, Tuple, Dict
 
@@ -117,6 +119,10 @@ class StockBot:
         logging.basicConfig(**logger_options)
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
+
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.handlers.clear()
+        self.logger.addHandler(handler)
 
     def get_close_price(self, client_index: int, index=-1):
         closing_price = self.clients[client_index].get_closing_price()
