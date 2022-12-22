@@ -329,6 +329,7 @@ class StockClientInteractive(StockClient):
         return str(self.candles.iloc[i].date)
 
     def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
+        self.logger.info("buying...(client)")
         action = 'BUY'
         reverse_action = 'SELL'
         if market_order:
@@ -447,6 +448,7 @@ class StockClientInteractive(StockClient):
         # assert that all other sales are canceled and if not, cancel them
         for t in self.current_trades[TradeTypes.SELL]:
             if t.order.orderId != trade.order.orderId:  # and not t.isActive()
+                print(f"should cancel order type {trade.order.orderType}")
                 self._client.cancelOrder(t.order)
 
         self._reset_trades(trade_type=TradeTypes.SELL)

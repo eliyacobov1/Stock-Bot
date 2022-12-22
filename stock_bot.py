@@ -331,11 +331,13 @@ class StockBot:
             local_min = self.get_close_price(client_index, index+sl_min_rel_pos)
 
         if local_min > stock_price:  # in case of inconsistent data
+            self.logger.info("aborting buy; inconsistent data (local min > stock_price)")
             return TRADE_NOT_COMPLETE
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
         if loss_percentage > self.stop_loss_bound:
+            self.logger.info("inconsistent data; loss percentage > stop_loss")
             return TRADE_NOT_COMPLETE
         self.stop_loss = stock_price * (1-loss_percentage)
         self.take_profit = stock_price*((loss_percentage * self.take_profit_multiplier)+1)
@@ -345,11 +347,13 @@ class StockBot:
             num_stocks = np.floor(np.minimum((ru_dollars / (1-(self.stop_loss/stock_price)) / stock_price),
                                   self.capital / stock_price))
             if num_stocks == 0:
+                self.logger.info("inconsistent data")
                 return TRADE_NOT_COMPLETE
             self.latest_trade[client_index] = [num_stocks * stock_price, num_stocks, stock_price]
         else:
             num_stocks = np.floor(self.capital / stock_price)
             if num_stocks == 0:
+                self.logger.info("inconsistent data")
                 return TRADE_NOT_COMPLETE
             self.latest_trade[client_index] = [self.capital, num_stocks, stock_price]
 
