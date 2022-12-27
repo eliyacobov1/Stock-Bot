@@ -336,19 +336,18 @@ class StockClientInteractive(StockClient):
             parent = ib_insync.MarketOrder(
                 action, quantity,
                 orderId=self._client.client.getReqId(),
-                transmit=False,
+                transmit=True,
                 outsideRth=True)
         else:
             parent = ib_insync.LimitOrder(
                 action, quantity, price,
                 orderId=self._client.client.getReqId(),
-                transmit=False,
+                transmit=True,
                 outsideRth=True)
         sl_order = ib_insync.StopOrder(
             reverse_action, quantity, stop_loss,
             orderId=self._client.client.getReqId(),
             transmit=True,
-            parentId=parent.orderId,
             outsideRth=True)
 
         parent_trade = self._execute_order(parent, wait_until_done=False)
@@ -450,6 +449,7 @@ class StockClientInteractive(StockClient):
         for t in self.current_trades[TradeTypes.SELL]:
             if t.order.orderId != trade.order.orderId:  # and not t.isActive()
                 print(f"should cancel order type {t.order.orderType}")
+                t.cancelledEvent = None
                 self._client.cancelOrder(t.order)
 
         self._reset_trades(trade_type=TradeTypes.SELL)

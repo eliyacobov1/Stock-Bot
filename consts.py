@@ -29,14 +29,29 @@ MACD_PARAMS = (12, 26, 9)  # fast, slow, signal
 SUPERTREND_PARAMS = (7, 3)  # length, multiplier
 RSI_PARAMS = 14  # length
 
+#  TODO run each stock with it's own strategy
+#   send sell command on first sell of rw strategy
+#   enable selection of date range
+#   add candles every 5 minutes by checking datetime time
+#   add max loss/win streak
+#   buy when reaching a certain margin from stop-loss
+#   how to set conditions dynamically according to user input
+#   further optimize logs- criteria calculations, central logic functions
+#   wait for buy order to initiate before sending sell orders- Done
+#   change limit sell order to market on eod
+#   ib.portfolio()
+#   validate current trades vs. ib_trades.api
+#   update current cash from api
+#   update stock bot on sell market order
+
 STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]
 DEFAULT_CRITERIA_LIST = STRATEGY_1
 
-STOCKS = ["SPY"]
+STOCKS = ["AAPL"]
 
-REAL_TIME = False
-ALWAYS_BUY = False  # for debugging
+REAL_TIME = True
+ALWAYS_BUY = True  # for debugging
 
 SELL_ON_TOUCH = True
 
