@@ -95,6 +95,7 @@ class StockBot:
         self.num_gains = self.num_eod_gains = self.num_losses = self.num_eod_losses = 0
         self.trades_per_day = np.full(num_candles, -1)
 
+        # we use this in order to check that criteria was not fulfilled at least 1 time between buy trades
         self.block_buy = False
 
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
@@ -133,7 +134,7 @@ class StockBot:
         return open_price.iloc[index]
 
     def get_low_price(self, client_index: int, index=-1):
-        low_price = self.clients[client_index].get_low_price()
+        low_price = self.clients[client_index].get_low_prices()
         return low_price.iloc[index]
 
     def get_high_price(self, client_index: int, index=-1):
@@ -180,7 +181,7 @@ class StockBot:
     def get_supertrend_criterion(self, client_index: int):
         self.logger.info("calculating Supertrend")
         high = self.clients[client_index].get_high_price()
-        low = self.clients[client_index].get_low_price()
+        low = self.clients[client_index].get_low_prices()
         close = self.clients[client_index].get_closing_price()
 
         length, multiplier = SUPERTREND_PARAMS
@@ -217,7 +218,7 @@ class StockBot:
         close_prices = self.clients[client_index].get_closing_price()
         open_prices = self.clients[client_index].get_opening_price()
         high_prices = self.clients[client_index].get_high_price()
-        low_prices = self.clients[client_index].get_low_price()
+        low_prices = self.clients[client_index].get_low_prices()
         ema = self.ema[client_index] if self.ema[client_index] is not None else self.get_ema(client_index)
 
         positive_candles = close_prices[:-1] - open_prices[:-1]
@@ -237,7 +238,7 @@ class StockBot:
         self.logger.info("calculating REVERSAL-BAR criterion")
         close_prices = self.clients[client_index].get_closing_price()
         high_prices = self.clients[client_index].get_high_price()
-        low_prices = self.clients[client_index].get_low_price()
+        low_prices = self.clients[client_index].get_low_prices()
         ema = self.ema[client_index] if self.ema[client_index] is not None else self.get_ema(client_index)
 
         # 1st candle high+low bigger than 2nd candle high+low
@@ -280,7 +281,7 @@ class StockBot:
             self.logger.info("performing is_buy check...")
         if ALWAYS_BUY:
             return True
-        if index is None:
+        if index is None:  # TODO means that we are in real time
             index = self.get_num_candles(client_index)-2 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
         if is_begin_day:
@@ -320,21 +321,22 @@ class StockBot:
         client_latest_trade = self.latest_trade[client_index]
         return client_latest_trade[STOCK_PRICE]
 
-    def buy(self, client_index: int, index: int = None, sl_min_rel_pos=None, real_time=False) -> int:
+    def buy(self, client_index: int, index: int = None, real_time=False) -> int:
         self.logger.info("buying...")
-        if index is None:
-            index = self.get_num_candles(client_index)-1 if index is None else index
-        low_prices = self.clients[client_index].get_low_price()
+        if index is None:  # real-time
+            index = self.get_num_candles(client_index)-1
+        low_prices = self.clients[client_index].get_low_prices()
         stock_price = self.get_close_price(client_index, index)
 
-        if sl_min_rel_pos is None:
+        # calculate local minima of history
+        if self.is_bar_strategy():  # strategy no.2
+            local_min = self.get_close_price(client_index, index - 2)
+        else:  # strategy no.1
             if len(low_prices) < STOP_LOSS_RANGE:
                 stop_loss_range = low_prices
             else:
                 stop_loss_range = low_prices[np.maximum(0, index-STOP_LOSS_RANGE):index]
             local_min = np.min(stop_loss_range)
-        else:
-            local_min = self.get_close_price(client_index, index+sl_min_rel_pos)
 
         # in case of inconsistent data, local_min!=local_min when local_min is nan
         if local_min != local_min or local_min > stock_price:
@@ -496,7 +498,7 @@ class StockBot:
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
                     condition = self.is_buy(index=i, client_index=j)
                     if condition:
-                        ret_val = self.buy(index=i, sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j)
+                        ret_val = self.buy(index=i, client_index=j)
                         if ret_val == TRADE_COMPLETE:  # in case trade was not complete
                             self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name: {self.clients[j].name}\n")
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
@@ -523,11 +525,12 @@ class StockBot:
                 self.add_candle(client_index=j)
                 self.logger.info(
                     f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")
+                # TODO and not self.data_changed[j]
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
-                    condition = self.is_buy(client_index=j, real_time=True)
+                    condition = self.is_buy(client_index=j, real_time=True)  # does client need to buy
                     if condition:
-                        ret_val = self.buy(sl_min_rel_pos=-2 if self.is_bar_strategy() else None, client_index=j, real_time=True)
-                        if ret_val == TRADE_COMPLETE:  # in case trade was not complete
+                        ret_val = self.buy(client_index=j, real_time=True)
+                        if ret_val == TRADE_COMPLETE:  # in case trade was complete
                             self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name {self.clients[j].name}\n")
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
                     condition = self.is_sell(client_index=j)
@@ -615,7 +618,7 @@ def filter_stocks(stocks: List[str], val: float):
 
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
-    period = f'{"3 D" if REAL_TIME else "60d"}'
+    period = f'{"3 D" if REAL_TIME else "60d"}'  # fetch candles from 3 days for real-time and 60 days for history run
 
     from stock_client import StockClientYfinance, StockClientInteractive
 
