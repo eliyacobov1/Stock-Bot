@@ -109,21 +109,38 @@ class StockBot:
         self.criteria: List[CRITERIA] = []
         self.set_criteria(criteria)
 
-        logger_options = {"format": '%(message)s',
-                          "datefmt": '%H:%M:%S',
-                          "level": logging.INFO}
-        if log_to_file:
-            logger_options["filename"] = "STOCKBOT_LOG"
-            logger_options["filemode"] = 'w'
+        # Define the log file name and the log formatting, including the date format
+        self.log_file = 'log.txt'
+        self.log_format = '%(asctime)s - [%(name)s]    - [%(levelname)s] - %(message)s'
+        self.date_format = '%Y-%m-%d %H:%M:%S'
+        self.formatter = logging.Formatter(self.log_format, datefmt=self.date_format)
+        # Create a FileHandler object and set the log file name and the log formatting
+        self.file_handler = logging.FileHandler(self.log_file)
+        self.stream_handler = logging.StreamHandler()
+        self.file_handler.setFormatter(self.formatter)
+        self.stream_handler.setFormatter(self.formatter)
 
-        # initialize logger
-        logging.basicConfig(**logger_options)
-        self.logger = logging.getLogger(__name__)
+        # Create a logger object
+        self.logger = logging.getLogger('StockBot')
         self.logger.setLevel(logging.INFO)
 
-        handler = logging.StreamHandler(sys.stdout)
-        self.logger.handlers.clear()
-        self.logger.addHandler(handler)
+        # Add the FileHandler object to the logger object
+        if REAL_TIME:
+            self.logger.addHandler(self.stream_handler)
+            self.logger.info("Real time mode")
+        else:
+            self.logger.addHandler(logging.StreamHandler(sys.stderr))
+            self.logger.info("History collection mode")
+
+        # check which strategy is used is True and log it
+        if self.is_bar_strategy():
+            self.logger.info("StockBot initialized with bar strategy")
+        else:
+            self.logger.info("StockBot initialized with candle strategy")
+
+        self.main_loop_sleep_time = 10
+
+        self.logger.setLevel(logging.INFO)
 
     def get_close_price(self, client_index: int, index=-1):
         closing_price = self.clients[client_index].get_closing_price()
@@ -170,7 +187,6 @@ class StockBot:
                 self.criteria.append(c)
 
     def get_rsi_criterion(self, client_index: int):
-        self.logger.info("calculating RSI")
         s_close_old = pd.Series(self.clients[client_index].get_closing_price())
 
         length = RSI_PARAMS
@@ -179,7 +195,6 @@ class StockBot:
         return np.where(rsi_results > 50)
 
     def get_supertrend_criterion(self, client_index: int):
-        self.logger.info("calculating Supertrend")
         high = self.clients[client_index].get_high_price()
         low = self.clients[client_index].get_low_prices()
         close = self.clients[client_index].get_closing_price()
@@ -195,7 +210,6 @@ class StockBot:
         return np.array(indices)
 
     def get_macd_criterion(self, client_index: int):
-        self.logger.info("calculating macd")
         close_prices = self.clients[client_index].get_closing_price()
 
         fast, slow, signal = MACD_PARAMS
@@ -214,7 +228,6 @@ class StockBot:
         return self.ema[client_index]
 
     def get_inside_bar_criterion(self, client_index: int):
-        self.logger.info("calculating INSIDE-BAR criterion")
         close_prices = self.clients[client_index].get_closing_price()
         open_prices = self.clients[client_index].get_opening_price()
         high_prices = self.clients[client_index].get_high_price()
@@ -235,7 +248,6 @@ class StockBot:
         return indices
 
     def get_reversal_bar_criterion(self, client_index: int):
-        self.logger.info("calculating REVERSAL-BAR criterion")
         close_prices = self.clients[client_index].get_closing_price()
         high_prices = self.clients[client_index].get_high_price()
         low_prices = self.clients[client_index].get_low_prices()
@@ -263,6 +275,7 @@ class StockBot:
         """
         indices = np.arange(self.get_num_candles(client_index)) if cond_operation == '&' else np.empty(0)
         for c in self.criteria:
+            self.logger.info("Calculating criteria: {}".format(c))
             callback = self.criteria_func_data_mapping[c]
             criterion_indices = callback(client_index)
             if cond_operation == '&':
@@ -280,22 +293,28 @@ class StockBot:
         if real_time:
             self.logger.info("performing is_buy check...")
         if ALWAYS_BUY:
-            return True
+            if ALWAYS_BUY:
+                self.logger.info("Always buy")
+                return True
         if index is None:  # TODO means that we are in real time
             index = self.get_num_candles(client_index)-2 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
         if is_begin_day:
+            self.logger.info("Blocking buy operation: beginning of day")
             return False
         is_end_day = self.clients[client_index].is_in_last_n_candles(n=N_LAST_CANDLES_OF_DAY, candle_index=index)
         if is_end_day:
+            self.logger.info("Blocking buy operation: end of day")
             return False
         op = '|' if self.is_bar_strategy() else '&'
         approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed[client_index] else self.criteria_indices[client_index]
+        self.logger.info(f"Approved indices: {approved_indices}")
         # check if latest index which represents the current candle meets the criteria
         ret_val = np.isin([index], approved_indices)[0]
         if self.block_buy:
             if not ret_val:
                 self.block_buy = False
+                self.logger.info(f"Unblocking buy operation; criteria not met\n")
             else:
                 self.logger.info(f"Blocking buy operation; criteria already met\n")
         return ret_val and not self.block_buy
@@ -368,10 +387,10 @@ class StockBot:
 
         self.capital -= self.latest_trade[client_index][AMOUNT]
         self.status[client_index] = SellStatus.BOUGHT
-        self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}\n"
-                         f"Trade no.: {self.get_num_trades()+1}\n"
-                         f"Buy amount: {self.latest_trade[client_index][AMOUNT]}\n"
-                         f"Stock price: {stock_price}")
+        self.logger.info(f"\tBuy date: {self.clients[client_index].get_candle_date(index)}\n"
+                         f"\tTrade no.: {self.get_num_trades()+1}\n"
+                         f"\tBuy amount: {self.latest_trade[client_index][AMOUNT]}\n"
+                         f"\tStock price: {stock_price}")
 
         if real_time:
             self.clients[client_index].buy_order(self.latest_trade[client_index][NUM_STOCKS],
@@ -456,9 +475,9 @@ class StockBot:
         self.capital += sell_price
         if self.rw_num_times_sold == 0:  # make sure that we are not in the middle of rw
             self.capital_history[self.get_num_trades()] = self.capital
-        self.logger.info(f"Sale date: {self.clients[client_index].get_candle_date(index)}\nSale amount: {sell_price}\n"
-                         f"Trade no.: {self.get_num_trades()}\n"
-                         f"Stock price: {stock_price}")
+        self.logger.info(f"\tSale date: {self.clients[client_index].get_candle_date(index)}\n\tSale amount: {sell_price}\n"
+                         f"\tTrade no.: {self.get_num_trades()}\n"
+                         f"\tStock price: {stock_price}")
 
         return profit
 
@@ -515,12 +534,17 @@ class StockBot:
         return self.capital
 
     def add_candle(self, client_index: int):
+        lastest_time = self.clients[client_index].get_candle_date(-1)
         self.clients[client_index].add_candle()
-        self.data_changed[client_index] = True
+        if self.clients[client_index].get_candle_date(-1) != lastest_time:
+            self.data_changed[client_index] = True
+            self.logger.info(f"New candle added!")
 
     async def main_loop(self) -> float:
+        self.logger.info("------------------ Main loop ----------------------\n")
         is_eod = False
         while not is_eod:
+            self.logger.info("------------------ New iteration ------------------")
             for j in range(len(self.clients)):
                 self.add_candle(client_index=j)
                 self.logger.info(
@@ -539,7 +563,9 @@ class StockBot:
                         self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if profit > 0 else LOSS}\nStock name {self.clients[j].name}\n")
                 if self.clients[j].is_day_last_transaction(-1):
                     is_eod = True
-            await asyncio.sleep(10)
+            await asyncio.sleep(self.main_loop_sleep_time)
+            self.logger.info(f"------------------ End of iteration [{self.main_loop_sleep_time}] seconds --\n")
+
         return self.capital
 
     def log_summary(self):

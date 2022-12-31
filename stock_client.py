@@ -269,14 +269,41 @@ class StockClientYfinance(StockClient):
 class StockClientInteractive(StockClient):
     def __init__(self, name: str, demo=True, client: ib_insync.IB = None):
         super(StockClient, self).__init__()
+
+        # Define the log file name and the log formatting, including the date format
+        self.log_file = 'log.txt'
+        self.log_format = '%(asctime)s - [%(name)s] - [%(levelname)s] - %(message)s'
+        self.date_format = '%Y-%m-%d %H:%M:%S'
+        self.formatter = logging.Formatter(self.log_format, datefmt=self.date_format)
+        # Create a FileHandler object and set the log file name and the log formatting
+        self.file_handler = logging.FileHandler(self.log_file)
+        self.stream_handler = logging.StreamHandler()
+        self.file_handler.setFormatter(self.formatter)
+        self.stream_handler.setFormatter(self.formatter)
+
+        # Create a logger object
+        self.logger = logging.getLogger('StockClient')
+        self.logger.setLevel(logging.INFO)
+        # Add the FileHandler object to the logger object
+        self.logger.addHandler(self.stream_handler)
+        # Use the logger object to log a message
+        self.logger.info("StockClient initialized")
+
         if client is not None:
             ib = client
         else:
             ib = ib_insync.IB()
+
+        logging.getLogger('ib_insync').setLevel(logging.ERROR)  # silence api logger
+        self.logger.info("ib_insync client created")
+
         if not ib.isConnected():
             ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=1)
+        self.logger.info("Connected to IB")
+
         self.name = name
         self._stock = ib_insync.Stock(self.name, 'SMART', 'USD')
+        self.logger.info(f"Contract created with the stock [{self._stock}]")
         self._client = ib
 
         self._take_profit_observers: List[Callable[[float], None]] = []  # will be triggered when take profit is calculated
@@ -287,7 +314,6 @@ class StockClientInteractive(StockClient):
         self.current_trades = {TradeTypes.BUY: [], TradeTypes.SELL: []}
 
         self.demo = demo
-        self.logger = logging.getLogger('__main__')
 
     def bind_tp_observer(self, callback: Callable[[float], None]):
         self._take_profit_observers.append(callback)
@@ -329,7 +355,7 @@ class StockClientInteractive(StockClient):
         return str(self.candles.iloc[i].date)
 
     def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
-        self.logger.info("buying...(client)")
+        self.logger.info("buy_order called")
         action = 'BUY'
         reverse_action = 'SELL'
         if market_order:
@@ -351,10 +377,12 @@ class StockClientInteractive(StockClient):
             outsideRth=True)
 
         parent_trade = self._execute_order(parent, wait_until_done=False)
+        self.logger.info(f"Parent trade executed {parent_trade}")
         parent_trade.filledEvent += self.buy_callback
         self._set_trade(trade_type=TradeTypes.BUY, trade=parent_trade, append=True)
 
         sl_trade = self._execute_order(sl_order)
+        self.logger.info(f"sl trade executed {sl_trade}")
         sl_trade.filledEvent += self.sell_callback
         sl_trade.cancelledEvent += self.cancel_callback
         self._set_trade(trade_type=TradeTypes.SELL, trade=sl_trade, append=True)
@@ -362,6 +390,7 @@ class StockClientInteractive(StockClient):
         return parent_trade, sl_trade
 
     def _resubmit_trade(self, trade: ib_insync.Trade):
+        self.logger.info(f"_resubmit_trade called with trade {trade}")
         order = trade.order
         order.orderId = self._client.client.getReqId()
 
@@ -378,6 +407,8 @@ class StockClientInteractive(StockClient):
             self._resubmit_trade(trade)
 
     def _set_trade(self, trade_type: TradeTypes, trade: ib_insync.Trade, append=False, replace=False):
+        self.logger.info(
+            f"_set_trade called with trade_type {trade_type}, trade {trade}, append {append}, replace {replace}")
         if replace:
             # first, remove the existing trade
             for i in range(len(self.current_trades[trade_type])):
@@ -411,13 +442,15 @@ class StockClientInteractive(StockClient):
 
         status = trade.orderStatus.status
 
-        self.logger.info(f"!!!!!! landing ing analyze buy with avg price of {price}, status {status}")
+        self.logger.info(f"Order with id {trade.order.orderId} filled")
+        self.logger.info(f"\tavg price: {price}")
 
         # transmit the take-profit sell order
         take_profit = float(format(get_take_profit(curr_price=price, stop_loss=stop_loss), '.2f'))
         for callback in self._take_profit_observers:  # update observers with the newly calculated take-profit
             callback(take_profit)
 
+        self.logger.info(f"take profit calculated: {take_profit}")
         quantity = trade.order.totalQuantity
         trade_id = trade.order.orderId
         tp_order = ib_insync.LimitOrder(
@@ -428,6 +461,7 @@ class StockClientInteractive(StockClient):
             outsideRth=True)
 
         tp_trade = self._execute_order(tp_order)
+        self.logger.info(f"take profit order executed {tp_trade}")
         tp_trade.filledEvent += self.sell_callback
         tp_trade.cancelledEvent += self.cancel_callback
         self._set_trade(trade_type=TradeTypes.SELL, trade=tp_trade, append=True)
@@ -439,7 +473,7 @@ class StockClientInteractive(StockClient):
         return cash
 
     def sell_callback(self, trade: ib_insync.Trade):
-        print(f"selling order of type {trade.order.orderType} (client)")
+        self.logger.debug(f"Client sell_callback called with trade {trade}")
         self._reset_trades(trade_type=TradeTypes.BUY)
 
         price = trade.orderStatus.avgFillPrice  # TODO check this
@@ -451,6 +485,7 @@ class StockClientInteractive(StockClient):
                 print(f"should cancel order type {t.order.orderType}")
                 t.cancelledEvent = None
                 self._client.cancelOrder(t.order)
+                self.logger.info(f"order {t.order} cancelled")
 
         self._reset_trades(trade_type=TradeTypes.SELL)
         self._sell_observer()  # TODO
@@ -488,7 +523,7 @@ class StockClientInteractive(StockClient):
         if wait_until_done:
             while not trade.isDone():
                 self._client.sleep(1)
-                self.logger.info("waiting")
+                self.logger.info("waiting trade to be done...")
                 self._client.waitOnUpdate()
         self.logger.info(f"Order of type {order.orderType} executed!")
         return trade
@@ -539,7 +574,6 @@ class StockClientInteractive(StockClient):
         return self.candles.shape[0]
 
     def add_candle(self) -> True:
-        self.logger.info("fetching latest candle data...\n")
         candles = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(self._res),
                                                  barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=False)
         while len(candles) == 0:
@@ -558,7 +592,7 @@ class StockClientInteractive(StockClient):
         return True
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
-        self.logger.info("fetching initial candle data...\n")
+        self.logger.info(f"fetching candle data with resoultion: {res}, period: {period}")
         self._res = res
         parsed_res = self.res_to_str(res)
 
