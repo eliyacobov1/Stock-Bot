@@ -336,8 +336,9 @@ class StockBot:
         else:
             local_min = self.get_close_price(client_index, index+sl_min_rel_pos)
 
-        if local_min > stock_price:  # in case of inconsistent data
-            self.logger.info("aborting buy; inconsistent data (local min > stock_price)")
+        # in case of inconsistent data, local_min!=local_min when local_min is nan
+        if local_min != local_min or local_min > stock_price:
+            self.logger.info("aborting buy; inconsistent data")
             return TRADE_NOT_COMPLETE
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
