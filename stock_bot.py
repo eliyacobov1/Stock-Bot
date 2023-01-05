@@ -627,6 +627,8 @@ class StockBot:
         while not is_eod:
             self.logger.info("------------------ New iteration ------------------")
             for j in range(len(self.clients)):
+                self.logger.info(f"Total cash: [{self.clients[j].get_cash()}$]")
+                self.logger.info(f"Stock holdings: {self.clients[j].get_stock_holdings()}")
                 self.add_candle(client_index=j)
                 self.logger.info(
                     f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")

@@ -111,6 +111,18 @@ class StockClient(ABC):
     def sell_order(self):
         pass
 
+    @abstractmethod
+    def get_cash(self):
+        pass
+
+    @abstractmethod
+    def get_holdings(self):
+        pass
+
+    @abstractmethod
+    def get_stock_holdings(self):
+        pass
+
 
 class StockClientFinhub(StockClient):
     def __init__(self, name: str):
@@ -270,6 +282,15 @@ class StockClientYfinance(StockClient):
         pass
 
     def sell_order(self):
+        pass
+
+    def get_cash(self):
+        pass
+
+    def get_holdings(self):
+        pass
+
+    def get_stock_holdings(self):
         pass
 
 
@@ -481,6 +502,23 @@ class StockClientInteractive(StockClient):
     def get_cash(self):
         cash = [i.value for i in self._client.accountValues() if (i.tag == 'TotalCashBalance' and i.currency == 'USD')][0]
         return cash
+
+    # create a function that return the holdings of the account as a dictionary of {symbol: [quantity, avg_price]}
+    def get_holdings(self):
+        holdings = {}
+        for i in self._client.positions():
+            holdings[i.contract.symbol] = [i.position, i.avgCost]
+        return holdings
+
+    def get_stock_holdings(self):
+        symbol = self.name
+        holdings = []
+        for i in self._client.positions():
+            if i.contract.symbol == symbol:
+                # convert avgCost to float with 2 decimal places
+                avgCost = float(format(i.avgCost, '.2f'))
+                holdings.append({"symbol": i.contract.symbol, "quantity": i.position, "avg_price": avgCost})
+        return holdings
 
     def sell_callback(self, trade: ib_insync.Trade):
         self.logger.debug(f"Client sell_callback called with trade {trade}")
