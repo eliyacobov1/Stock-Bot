@@ -356,6 +356,7 @@ class StockBot:
                 self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[index]
                 self.curr_data_entry['ema48'] = self.get_ema(client_index, length=48)[index]
                 self.curr_data_entry['ema100'] = self.get_ema(client_index, length=100)[index]
+                self.logger.info(f"current candle analysis data:\n\t{self.curr_data_entry}")
                 self.flush_data_entry()
             else:  # in case we run in history mode, we can fetch the data for all candles at once
                 self.extract_candle_data_table(client_index)
