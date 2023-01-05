@@ -38,7 +38,7 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
-    def get_high_price(self):
+    def get_high_prices(self) -> pd.Series:
         pass
 
     @abstractmethod
@@ -46,7 +46,11 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
-    def get_low_prices(self):
+    def get_candle_dates(self) -> pd.Series:
+        pass
+
+    @abstractmethod
+    def get_low_prices(self) -> pd.Series:
         pass
 
     @abstractmethod
@@ -124,7 +128,7 @@ class StockClientFinhub(StockClient):
     def get_opening_price(self) -> pd.Series:
         return self.candles['o']
 
-    def get_high_price(self) -> pd.Series:
+    def get_high_prices(self) -> pd.Series:
         return self.candles['h']
 
     def get_num_candles(self) -> int:
@@ -167,7 +171,7 @@ class StockClientYfinance(StockClient):
     def get_opening_price(self) -> pd.Series:
         return self.candles['Open']
 
-    def get_high_price(self) -> pd.Series:
+    def get_high_prices(self) -> pd.Series:
         return self.candles['High']
 
     def get_low_prices(self) -> pd.Series:
@@ -185,6 +189,9 @@ class StockClientYfinance(StockClient):
 
     def get_candle_date(self, i: int) -> str:
         return str(self.candles.iloc[i].name)
+
+    def get_candle_dates(self) -> pd.Series:
+        return self.candles.index.to_series()
 
     @staticmethod
     def res_to_str(res: TimeRes) -> str:
@@ -335,7 +342,7 @@ class StockClientInteractive(StockClient):
     def get_opening_price(self) -> pd.Series:
         return self.candles['open']
 
-    def get_high_price(self) -> pd.Series:
+    def get_high_prices(self) -> pd.Series:
         return self.candles['high']
 
     def get_low_prices(self) -> pd.Series:
@@ -353,6 +360,9 @@ class StockClientInteractive(StockClient):
 
     def get_candle_date(self, i: int) -> str:
         return str(self.candles.iloc[i].date)
+
+    def get_candle_dates(self) -> pd.Series:
+        return self.candles["date"]
 
     def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
         self.logger.info("buy_order called")

@@ -43,6 +43,8 @@ RSI_PARAMS = 14  # length
 #   validate current trades vs. ib_trades.api
 #   update current cash from api
 #   update stock bot on sell market order
+#   store criterion data on every candle- RSI, MACD, SUPER-TREND, EMA9, EMA48, EMA100, EMA200, VWAP,
+#       VIX, high, low (at the time of the candle) and log to logger
 
 STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]
@@ -70,6 +72,7 @@ N_FIRST_CANDLES_OF_DAY = 0
 N_LAST_CANDLES_OF_DAY = 1
 
 EMA_LENGTH = 200
+CANDLE_DATA_CSV_NAME = 'candle_data.csv'
 
 
 class TimeRes(Enum):

@@ -2,7 +2,7 @@ import asyncio
 import sys
 
 import nest_asyncio
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Callable
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
-                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY)
+                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -51,7 +51,6 @@ class StockBot:
         self.start_time = start
         self.end_time = end
         self.period = period
-        self.rsi_window_size, self.ema_window_size = rsi_win_size, ema_win_size
 
         self.take_profit_multiplier = tp_multiplier
         self.stop_loss_bound = sl_bound
@@ -99,12 +98,14 @@ class StockBot:
         self.block_buy = False
 
         # this dict maps a criterion to the method that returns the candle indices that fulfil it
-        self.criteria_func_data_mapping = {CRITERIA.RSI: self.get_rsi_criterion,
-                                           CRITERIA.SUPER_TREND: self.get_supertrend_criterion,
-                                           CRITERIA.MACD: self.get_macd_criterion,
-                                           CRITERIA.INSIDE_BAR: self.get_inside_bar_criterion,
-                                           CRITERIA.REVERSAL_BAR: self.get_reversal_bar_criterion}
-        self.ema = [None for i in range(len(self.clients))]
+        self.criteria_func_data_mapping: Dict[CRITERIA, Callable[[int, int], np.ndarray]] =\
+                                                            {
+                                                                CRITERIA.RSI: self.get_rsi_criterion,
+                                                                CRITERIA.SUPER_TREND: self.get_supertrend_criterion,
+                                                                CRITERIA.MACD: self.get_macd_criterion,
+                                                                CRITERIA.INSIDE_BAR: self.get_inside_bar_criterion,
+                                                                CRITERIA.REVERSAL_BAR: self.get_reversal_bar_criterion
+                                                            }
 
         self.criteria: List[CRITERIA] = []
         self.set_criteria(criteria)
@@ -140,7 +141,24 @@ class StockBot:
 
         self.main_loop_sleep_time = 10
 
+        # create a dataframe to store runtime analysis candle data
+        cols = ['date', 'name', 'high', 'low', 'ema200']
+        if self.is_bar_strategy():
+            cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'SUPERTREND']
+        if not REAL_TIME:
+            cols += ['ema9', 'ema48', 'ema100']
+        self.data_collection_df = pd.DataFrame(columns=cols)
+        self.curr_data_entry = {}
+
         self.logger.setLevel(logging.INFO)
+
+    def flush_data_entry(self):
+        """
+        append a row to the self.data_collection_df- a dataframe that collects candle data
+        """
+        self.data_collection_df = self.data_collection_df.append(self.curr_data_entry, ignore_index=True)
+        self.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME, index=False)  # flush to disk to save progress
+        self.curr_data_entry = {}
 
     def get_close_price(self, client_index: int, index=-1):
         closing_price = self.clients[client_index].get_closing_price()
@@ -155,7 +173,7 @@ class StockBot:
         return low_price.iloc[index]
 
     def get_high_price(self, client_index: int, index=-1):
-        high_price = self.clients[client_index].get_high_price()
+        high_price = self.clients[client_index].get_high_prices()
         return high_price.iloc[index]
 
     def set_tp_multiplier(self, val: float):
@@ -186,16 +204,22 @@ class StockBot:
                 c = CRITERIA.factory(name)
                 self.criteria.append(c)
 
-    def get_rsi_criterion(self, client_index: int):
+    def get_rsi_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
         s_close_old = pd.Series(self.clients[client_index].get_closing_price())
 
         length = RSI_PARAMS
 
         rsi_results = np.array(rsi(s_close_old, length=length))
+
+        if REAL_TIME:
+            self.curr_data_entry['RSI'] = rsi_results[candle_index]
+        else:
+            self.data_collection_df['RSI'] = rsi_results.tolist()
+
         return np.where(rsi_results > 50)
 
-    def get_supertrend_criterion(self, client_index: int):
-        high = self.clients[client_index].get_high_price()
+    def get_supertrend_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
+        high = self.clients[client_index].get_high_prices()
         low = self.clients[client_index].get_low_prices()
         close = self.clients[client_index].get_closing_price()
 
@@ -205,11 +229,16 @@ class StockBot:
                                            length=length, multiplier=multiplier)
         supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
 
+        if REAL_TIME:
+            self.curr_data_entry['SUPERTREND'] = supertrend_results[candle_index]
+        else:
+            self.data_collection_df['SUPERTREND'] = supertrend_results.tolist()
+
         indices = np.where(supertrend_results < close)
 
         return np.array(indices)
 
-    def get_macd_criterion(self, client_index: int):
+    def get_macd_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
         close_prices = self.clients[client_index].get_closing_price()
 
         fast, slow, signal = MACD_PARAMS
@@ -217,22 +246,29 @@ class StockBot:
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
         signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX])
 
+        if REAL_TIME:
+            self.curr_data_entry['MACD'] = macd_data[candle_index]
+            self.curr_data_entry['MACD_SIGNAL'] = signal_data[candle_index]
+        else:
+            self.data_collection_df['MACD'] = macd_data.tolist()
+            self.data_collection_df['MACD_SIGNAL'] = signal_data.tolist()
+
         indices = np.where((macd_data > signal_data) & (macd_data < 0))
         indices_as_nd = np.array(indices)
 
         return indices_as_nd
 
-    def get_ema(self, client_index: int):
+    def get_ema(self, client_index: int, length=EMA_LENGTH):
         self.logger.info("calculating EMA\n")
-        self.ema[client_index] = ema(self.clients[client_index].get_closing_price(), EMA_LENGTH)
-        return self.ema[client_index]
+        ema_data = ema(self.clients[client_index].get_closing_price(), length)
+        return ema_data
 
-    def get_inside_bar_criterion(self, client_index: int):
+    def get_inside_bar_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
         close_prices = self.clients[client_index].get_closing_price()
         open_prices = self.clients[client_index].get_opening_price()
-        high_prices = self.clients[client_index].get_high_price()
+        high_prices = self.clients[client_index].get_high_prices()
         low_prices = self.clients[client_index].get_low_prices()
-        ema = self.ema[client_index] if self.ema[client_index] is not None else self.get_ema(client_index)
+        ema = self.get_ema(client_index)  # TODO need to fetch ema every time!
 
         positive_candles = close_prices[:-1] - open_prices[:-1]
         high_price_diff = np.diff(high_prices)
@@ -247,11 +283,11 @@ class StockBot:
 
         return indices
 
-    def get_reversal_bar_criterion(self, client_index: int):
+    def get_reversal_bar_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
         close_prices = self.clients[client_index].get_closing_price()
-        high_prices = self.clients[client_index].get_high_price()
+        high_prices = self.clients[client_index].get_high_prices()
         low_prices = self.clients[client_index].get_low_prices()
-        ema = self.ema[client_index] if self.ema[client_index] is not None else self.get_ema(client_index)
+        ema = self.get_ema(client_index)
 
         # 1st candle high+low bigger than 2nd candle high+low
         cond_1 = np.where((np.diff(high_prices) < 0) & (np.diff(low_prices) < 0))[0] + 1
@@ -269,15 +305,15 @@ class StockBot:
         """
         return len(self.clients[client_index].get_closing_price())
 
-    def _is_criteria(self, client_index: int, cond_operation='&') -> np.ndarray:
+    def _is_criteria(self, client_index: int, candle_index: int, cond_operation='&') -> np.ndarray:
         """
         :param cond_operation: '&' or '|'. Indicates the operation that will be performed on the given criteria.
         """
         indices = np.arange(self.get_num_candles(client_index)) if cond_operation == '&' else np.empty(0)
         for c in self.criteria:
             self.logger.info("Calculating criteria: {}".format(c))
-            callback = self.criteria_func_data_mapping[c]
-            criterion_indices = callback(client_index)
+            callback: Callable[[int, int], np.ndarray] = self.criteria_func_data_mapping[c]
+            criterion_indices = callback(client_index, candle_index)
             if cond_operation == '&':
                 indices = filter_by_array(indices, criterion_indices)
             else:
@@ -307,8 +343,26 @@ class StockBot:
             self.logger.info("Blocking buy operation: end of day")
             return False
         op = '|' if self.is_bar_strategy() else '&'
-        approved_indices = self._is_criteria(cond_operation=op, client_index=client_index) if self.data_changed[client_index] else self.criteria_indices[client_index]
-        self.logger.info(f"Approved indices: {approved_indices}")
+
+        if self.data_changed[client_index]:
+            approved_indices = self._is_criteria(cond_operation=op, client_index=client_index, candle_index=index)
+            # data analysis of stock candles
+            if REAL_TIME:
+                self.curr_data_entry['name'] = self.clients[client_index].name
+                self.curr_data_entry['date'] = self.clients[client_index].get_candle_date(index)
+                self.curr_data_entry['high'] = self.clients[client_index].get_high_prices()[index]
+                self.curr_data_entry['low'] = self.clients[client_index].get_low_prices()[index]
+                self.curr_data_entry['ema9'] = self.get_ema(client_index, length=9)[index]
+                self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[index]
+                self.curr_data_entry['ema48'] = self.get_ema(client_index, length=48)[index]
+                self.curr_data_entry['ema100'] = self.get_ema(client_index, length=100)[index]
+                self.flush_data_entry()
+            else:  # in case we run in history mode, we can fetch the data for all candles at once
+                self.extract_candle_data_table(client_index)
+        else:
+            approved_indices = self.criteria_indices[client_index]
+
+        # self.logger.info(f"Approved indices: {approved_indices}")
         # check if latest index which represents the current candle meets the criteria
         ret_val = np.isin([index], approved_indices)[0]
         if self.block_buy:
@@ -318,6 +372,33 @@ class StockBot:
             else:
                 self.logger.info(f"Blocking buy operation; criteria already met\n")
         return ret_val and not self.block_buy
+
+    def extract_single_candle_data(self, client_index: int, candle_index: int):
+        """
+        builds a dict representing a single row in the candle data dataframe-
+         containing info fields (low, high, ema etc..)- according to the given candle index
+        """
+        self.curr_data_entry['name'] = self.clients[client_index].name
+        self.curr_data_entry['date'] = self.clients[client_index].get_candle_date(candle_index)
+        self.curr_data_entry['high'] = self.clients[client_index].get_high_prices()[candle_index]
+        self.curr_data_entry['low'] = self.clients[client_index].get_low_prices()[candle_index]
+        self.curr_data_entry['ema9'] = self.get_ema(client_index, length=9)[candle_index]
+        self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[candle_index]
+        self.curr_data_entry['ema48'] = self.get_ema(client_index, length=48)[candle_index]
+        self.curr_data_entry['ema100'] = self.get_ema(client_index, length=100)[candle_index]
+
+    def extract_candle_data_table(self, client_index: int):
+        """
+        builds a dataframe containing info fields (low, high, ema etc..) about the given client candles
+        """
+        self.data_collection_df['name'] = self.clients[client_index].name
+        self.data_collection_df['date'] = self.clients[client_index].get_candle_dates().tolist()
+        self.data_collection_df['low'] = self.clients[client_index].get_low_prices().tolist()
+        self.data_collection_df['high'] = self.clients[client_index].get_high_prices().tolist()
+        self.data_collection_df['ema9'] = self.get_ema(client_index, length=9).tolist()
+        self.data_collection_df['ema48'] = self.get_ema(client_index, length=48).tolist()
+        self.data_collection_df['ema100'] = self.get_ema(client_index, length=100).tolist()
+        self.data_collection_df['ema200'] = self.get_ema(client_index, length=200).tolist()
 
     def is_sell(self, client_index: int, index: int = None, sell_on_touch=SELL_ON_TOUCH) -> bool:
         if index is None:
@@ -668,6 +749,7 @@ if __name__ == '__main__':
             res = asyncio.run(sb.main_loop())
         else:
             res = sb.calc_revenue()
+            sb.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME, index=False)
 
         if OUTPUT_PLOT:
             plot_capital(sb)
