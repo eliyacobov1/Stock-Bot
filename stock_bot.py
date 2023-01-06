@@ -9,6 +9,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from pandas_ta import rsi, macd, supertrend, ema
 import logging
+import pprint
 
 from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent, send_email)
 from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
@@ -212,7 +213,9 @@ class StockBot:
         rsi_results = np.array(rsi(s_close_old, length=length))
 
         if REAL_TIME:
-            self.curr_data_entry['RSI'] = rsi_results[candle_index]
+            self.curr_data_entry['RSI'] = float(format(rsi_results[candle_index], '.2f'))
+            self.logger.info(f"\t\t[+] RSI condition is [{self.curr_data_entry['RSI'] > 50}]"
+                             f" with [{self.curr_data_entry['RSI']} {'>' if self.curr_data_entry['RSI'] > 50 else '<'} 50]")
         else:
             self.data_collection_df['RSI'] = rsi_results.tolist()
 
@@ -230,7 +233,11 @@ class StockBot:
         supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
 
         if REAL_TIME:
-            self.curr_data_entry['SUPERTREND'] = supertrend_results[candle_index]
+            self.curr_data_entry['SUPERTREND'] = float(format(supertrend_results[candle_index], '.2f'))
+            self.logger.info(f"\t\t[+] SUPERTREND condition is [{self.curr_data_entry['SUPERTREND'] < close[candle_index]}]"
+                             f" with [{self.curr_data_entry['SUPERTREND']} (SUPERTREND) "
+                             f"{'>' if self.curr_data_entry['RSI'] > close[candle_index] else '<'}"
+                             f" {close[candle_index]} (close_price)]")
         else:
             self.data_collection_df['SUPERTREND'] = supertrend_results.tolist()
 
@@ -247,8 +254,19 @@ class StockBot:
         signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX])
 
         if REAL_TIME:
-            self.curr_data_entry['MACD'] = macd_data[candle_index]
-            self.curr_data_entry['MACD_SIGNAL'] = signal_data[candle_index]
+            self.curr_data_entry['MACD'] = float(format(macd_data[candle_index], '.2f'))
+            self.curr_data_entry['MACD_SIGNAL'] = float(format(signal_data[candle_index], '.2f'))
+            self.logger.info(f"\t\t[+] MACD condition is "
+                             f"[{(self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL']) and (self.curr_data_entry['MACD'] < 0)}]")
+            self.logger.info(
+                f"\t\t[+] First condition [{self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL']}]"
+                f" with [{self.curr_data_entry['MACD']} (MACD) "
+                f"{'>' if self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL'] else '<'}"
+                f" {self.curr_data_entry['MACD_SIGNAL']} (MACD_SIGNAL)]")
+            self.logger.info(
+                f"\t\t[+] Second condition is [{self.curr_data_entry['MACD'] < 0}]"
+                f" with [{self.curr_data_entry['MACD']} (MACD) "
+                f"{'>' if self.curr_data_entry['MACD'] > 0 else '<'} 0]")
         else:
             self.data_collection_df['MACD'] = macd_data.tolist()
             self.data_collection_df['MACD_SIGNAL'] = signal_data.tolist()
@@ -259,7 +277,6 @@ class StockBot:
         return indices_as_nd
 
     def get_ema(self, client_index: int, length=EMA_LENGTH):
-        self.logger.info("calculating EMA\n")
         ema_data = ema(self.clients[client_index].get_closing_price(), length)
         return ema_data
 
@@ -268,7 +285,8 @@ class StockBot:
         open_prices = self.clients[client_index].get_opening_price()
         high_prices = self.clients[client_index].get_high_prices()
         low_prices = self.clients[client_index].get_low_prices()
-        ema = self.get_ema(client_index)  # TODO need to fetch ema every time!
+        self.logger.info("calculating EMA")
+        ema = self.get_ema(client_index)
 
         positive_candles = close_prices[:-1] - open_prices[:-1]
         high_price_diff = np.diff(high_prices)
@@ -287,6 +305,7 @@ class StockBot:
         close_prices = self.clients[client_index].get_closing_price()
         high_prices = self.clients[client_index].get_high_prices()
         low_prices = self.clients[client_index].get_low_prices()
+        self.logger.info("calculating EMA")
         ema = self.get_ema(client_index)
 
         # 1st candle high+low bigger than 2nd candle high+low
@@ -348,15 +367,8 @@ class StockBot:
             approved_indices = self._is_criteria(cond_operation=op, client_index=client_index, candle_index=index)
             # data analysis of stock candles
             if REAL_TIME:
-                self.curr_data_entry['name'] = self.clients[client_index].name
-                self.curr_data_entry['date'] = self.clients[client_index].get_candle_date(index)
-                self.curr_data_entry['high'] = self.clients[client_index].get_high_prices()[index]
-                self.curr_data_entry['low'] = self.clients[client_index].get_low_prices()[index]
-                self.curr_data_entry['ema9'] = self.get_ema(client_index, length=9)[index]
-                self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[index]
-                self.curr_data_entry['ema48'] = self.get_ema(client_index, length=48)[index]
-                self.curr_data_entry['ema100'] = self.get_ema(client_index, length=100)[index]
-                self.logger.info(f"current candle analysis data:\n\t{self.curr_data_entry}")
+                self.extract_single_candle_data(client_index, index)
+                self.logger.info(f"Current candle analysis data: {self.curr_data_entry}")
                 self.flush_data_entry()
             else:  # in case we run in history mode, we can fetch the data for all candles at once
                 self.extract_candle_data_table(client_index)
