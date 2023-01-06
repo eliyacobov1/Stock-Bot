@@ -355,11 +355,13 @@ class StockBot:
             index = self.get_num_candles(client_index)-2 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
         if is_begin_day:
-            self.logger.info("Blocking buy operation: beginning of day")
+            if REAL_TIME:
+                self.logger.info("Blocking buy operation: beginning of day")
             return False
         is_end_day = self.clients[client_index].is_in_last_n_candles(n=N_LAST_CANDLES_OF_DAY, candle_index=index)
         if is_end_day:
-            self.logger.info("Blocking buy operation: end of day")
+            if REAL_TIME:
+                self.logger.info("Blocking buy operation: end of day")
             return False
         op = '|' if self.is_bar_strategy() else '&'
 
