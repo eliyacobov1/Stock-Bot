@@ -435,7 +435,7 @@ class StockBot:
         return client_latest_trade[STOCK_PRICE]
 
     def buy(self, client_index: int, index: int = None, real_time=False) -> int:
-        self.logger.info("buying...")
+        self.logger.info("Buying...")
         if index is None:  # real-time
             index = self.get_num_candles(client_index)-1
         low_prices = self.clients[client_index].get_low_prices()
@@ -453,13 +453,13 @@ class StockBot:
 
         # in case of inconsistent data, local_min!=local_min when local_min is nan
         if local_min != local_min or local_min > stock_price:
-            self.logger.info("aborting buy; inconsistent data")
+            self.logger.info("Aborting buy with inconsistent data")
             return TRADE_NOT_COMPLETE
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
         if loss_percentage > self.stop_loss_bound:
-            self.logger.info("inconsistent data; loss percentage > stop_loss")
+            self.logger.info("Inconsistent data with loss percentage > stop_loss")
             return TRADE_NOT_COMPLETE
         self.stop_loss = stock_price * (1-loss_percentage)
         self.take_profit = stock_price*((loss_percentage * self.take_profit_multiplier)+1)
@@ -469,13 +469,13 @@ class StockBot:
             num_stocks = np.floor(np.minimum((ru_dollars / (1-(self.stop_loss/stock_price)) / stock_price),
                                   self.capital / stock_price))
             if num_stocks == 0:
-                self.logger.info("inconsistent data")
+                self.logger.info("Inconsistent data")
                 return TRADE_NOT_COMPLETE
             self.latest_trade[client_index] = [num_stocks * stock_price, num_stocks, stock_price]
         else:
             num_stocks = np.floor(self.capital / stock_price)
             if num_stocks == 0:
-                self.logger.info("inconsistent data")
+                self.logger.info("Inconsistent data")
                 return TRADE_NOT_COMPLETE
             self.latest_trade[client_index] = [self.capital, num_stocks, stock_price]
 
