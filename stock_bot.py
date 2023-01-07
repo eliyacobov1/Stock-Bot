@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple, Dict, Callable
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from pandas_ta import rsi, macd, supertrend, ema
+from pandas_ta import rsi, macd, supertrend, ema, vwap
 import logging
 import pprint
 
@@ -151,7 +151,7 @@ class StockBot:
         if self.is_bar_strategy():
             cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'SUPERTREND']
         if not self.real_time:
-            cols += ['ema9', 'ema48', 'ema100']
+            cols += ['ema9', 'ema48', 'ema100', 'vwap']
         self.data_collection_df = pd.DataFrame(columns=cols)
         self.curr_data_entry = {}
 
@@ -281,6 +281,14 @@ class StockBot:
     def get_ema(self, client_index: int, length=EMA_LENGTH):
         ema_data = ema(self.clients[client_index].get_closing_price(), length)
         return ema_data
+
+    def get_vwap(self, client_index: int):
+        high = self.clients[client_index].get_high_prices()
+        low = self.clients[client_index].get_low_prices()
+        close = self.clients[client_index].get_closing_price()
+        volume = self.clients[client_index].get_volume()
+        vwap_data = vwap(high, low, close, volume)
+        return vwap_data
 
     def get_inside_bar_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
         close_prices = self.clients[client_index].get_closing_price()
@@ -428,6 +436,7 @@ class StockBot:
         self.data_collection_df['ema48'] = self.get_ema(client_index, length=48).tolist()
         self.data_collection_df['ema100'] = self.get_ema(client_index, length=100).tolist()
         self.data_collection_df['ema200'] = self.get_ema(client_index, length=200).tolist()
+        self.data_collection_df['vwap'] = self.get_vwap(client_index).tolist()
 
     def is_sell(self, client_index: int, index: int = None) -> bool:
         if index is None:

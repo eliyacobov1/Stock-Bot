@@ -30,7 +30,11 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
-    def get_closing_price(self):
+    def get_closing_price(self) -> pd.Series:
+        pass
+
+    @abstractmethod
+    def get_volume(self) -> pd.Series:
         pass
 
     @abstractmethod
@@ -149,6 +153,9 @@ class StockClientFinhub(StockClient):
     def get_candle_date(self, i: int) -> str:
         pass
 
+    def get_volume(self) -> pd.Series:
+        pass
+
     def get_low_prices(self) -> pd.Series:
         return self.candles['l']
 
@@ -188,6 +195,9 @@ class StockClientYfinance(StockClient):
 
     def get_low_prices(self) -> pd.Series:
         return self.candles['Low']
+
+    def get_volume(self) -> pd.Series:
+        return self.candles['Volume']
 
     def is_day_last_transaction(self, i: int) -> bool:
         last_transaction_time: str = str()
@@ -368,6 +378,9 @@ class StockClientInteractive(StockClient):
 
     def get_low_prices(self) -> pd.Series:
         return self.candles['low']
+
+    def get_volume(self) -> pd.Series:
+        return self.candles['volume']
 
     def is_day_last_transaction(self, i: int) -> bool:
         last_transaction_time: str = str()
