@@ -127,6 +127,7 @@ class StockBot:
         self.logger.setLevel(logging.INFO)
 
         self.real_time = REAL_TIME
+        self.sell_on_touch = SELL_ON_TOUCH
 
         # Add the FileHandler object to the logger object
         if self.real_time:
@@ -427,13 +428,13 @@ class StockBot:
         self.data_collection_df['ema100'] = self.get_ema(client_index, length=100).tolist()
         self.data_collection_df['ema200'] = self.get_ema(client_index, length=200).tolist()
 
-    def is_sell(self, client_index: int, index: int = None, sell_on_touch=SELL_ON_TOUCH) -> bool:
+    def is_sell(self, client_index: int, index: int = None) -> bool:
         if index is None:
             index = self.get_num_candles(client_index)-1 if index is None else index
         if self.clients[client_index].is_day_last_transaction(index):
             return True
         curr_index = self.get_num_candles(client_index) - 1 if index is None else index
-        if sell_on_touch:
+        if self.sell_on_touch:
             latest_low = self.get_low_price(client_index, curr_index)
             latest_high = self.get_high_price(client_index, curr_index)
             return latest_low <= self.stop_loss or latest_high >= self.take_profit
@@ -527,7 +528,21 @@ class StockBot:
             return 0
 
         curr_index = self.get_num_candles(client_index) - 1 if index is None else index
-        stock_price = self.get_close_price(client_index, curr_index)
+
+        # check if candle price reached take_profit / stop_loss- if in real time mode or sell_on_touch
+        # option is used, set stock_price accordingly. Else, stock_price will be set to the candle close
+        # price as a default
+        stock_price = None
+        if self.real_time or self.sell_on_touch:
+            curr_low = self.get_low_price(client_index, curr_index)
+            curr_high = self.get_high_price(client_index, curr_index)
+            if curr_low <= self.stop_loss:
+                stock_price = curr_low
+            elif curr_high >= self.take_profit:
+                stock_price = curr_high
+        if stock_price is None:
+            stock_price = self.get_close_price(client_index, curr_index)
+
         sell_price = stock_price*self.latest_trade[client_index][NUM_STOCKS]
         self.status[client_index] = SellStatus.SOLD
 
