@@ -20,7 +20,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
-                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME)
+                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -146,6 +146,8 @@ class StockBot:
 
         self.main_loop_sleep_time = 10
 
+        self.trades_df = pd.DataFrame(columns=['name', 'date', 'number', 'type', 'price', 'amount', 'capital', 'sell type'])
+
         # create a dataframe to store runtime analysis candle data
         cols = ['date', 'name', 'high', 'low', 'ema200']
         if self.is_bar_strategy():
@@ -157,13 +159,18 @@ class StockBot:
 
         self.logger.setLevel(logging.INFO)
 
-    def flush_data_entry(self):
+    def flush_candle_data_entry(self):
         """
         append a row to the self.data_collection_df- a dataframe that collects candle data
         """
         self.data_collection_df = self.data_collection_df.append(self.curr_data_entry, ignore_index=True)
         self.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME, index=False)  # flush to disk to save progress
         self.curr_data_entry = {}
+
+    def flush_trade_entry(self, trade_entry: Dict):
+        self.trades_df = self.trades_df.append(trade_entry, ignore_index=True)
+        if self.real_time:  # for history mode, we write the csv to disk at the end of the run
+            self.trades_df.to_csv(TRADE_DATA_CSV_NAME, index=False)  # flush to disk to save progress
 
     def get_close_price(self, client_index: int, index=-1):
         closing_price = self.clients[client_index].get_closing_price()
@@ -381,7 +388,7 @@ class StockBot:
             if self.real_time:
                 self.extract_single_candle_data(client_index, index)
                 self.logger.info(f"Current candle analysis data: {self.curr_data_entry}")
-                self.flush_data_entry()
+                self.flush_candle_data_entry()
             else:  # in case we run in history mode, we can fetch the data for all candles at once
                 self.extract_candle_data_table(client_index)
         else:
@@ -507,10 +514,20 @@ class StockBot:
         self.capital -= self.latest_trade[client_index][AMOUNT]
         self.status[client_index] = SellStatus.BOUGHT
         self.logger.info("SellStatus changed -> [BOUGHT]")
+
+        trade_data = {"date": self.clients[client_index].get_candle_date(index),
+                      "number": self.get_num_trades()+1,
+                      "amount": self.latest_trade[client_index][AMOUNT],
+                      "price": stock_price,
+                      "type": "Buy",
+                      "capital": self.capital,
+                      "name": self.clients[client_index].name}
+        self.flush_trade_entry(trade_data)
+
         if not self.real_time:
-            self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}")
-            self.logger.info(f"Trade number: {self.get_num_trades()+1}")
-            self.logger.info(f"Buy amount: {self.latest_trade[client_index][AMOUNT]}")
+            self.logger.info(f"Buy date: {trade_data['date']}")
+            self.logger.info(f"Trade number: {trade_data['number']}")
+            self.logger.info(f"Buy amount: {trade_data['amount']}")
             self.logger.info(f"Stock price: {stock_price}")
 
         if self.real_time:
@@ -609,8 +626,19 @@ class StockBot:
         self.capital += sell_price
         if self.rw_num_times_sold == 0:  # make sure that we are not in the middle of rw
             self.capital_history[:, self.get_num_trades()] = [index, self.capital]
+
+        trade_data = {"date": self.clients[client_index].get_candle_date(index),
+                      "number": self.get_num_trades(),
+                      "amount": sell_price,
+                      "price": stock_price,
+                      "type": "Sell",
+                      "capital": self.capital,
+                      "sell_type": 'gain' if profit > 0 else 'loss',
+                      "name": self.clients[client_index].name}
+        self.flush_trade_entry(trade_data)
+
         if not self.real_time:
-            self.logger.info(f"\tSale date: {self.clients[client_index].get_candle_date(index)}\n\tSale amount: {sell_price}\n"
+            self.logger.info(f"\tSale date: {trade_data['date']}\n\tSale amount: {sell_price}\n"
                             f"\tTrade no.: {self.get_num_trades()}\n"
                             f"\tStock price: {stock_price}")
 
@@ -814,6 +842,7 @@ if __name__ == '__main__':
         else:
             res = sb.main_loop_history()
             sb.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME, index=False)
+            sb.trades_df.to_csv(TRADE_DATA_CSV_NAME, index=False)
 
         if OUTPUT_PLOT:
             plot_capital(sb)
