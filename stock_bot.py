@@ -126,8 +126,10 @@ class StockBot:
         self.logger = logging.getLogger('StockBot')
         self.logger.setLevel(logging.INFO)
 
+        self.real_time = REAL_TIME
+
         # Add the FileHandler object to the logger object
-        if REAL_TIME:
+        if self.real_time:
             self.logger.addHandler(self.stream_handler)
             self.logger.info("Real time mode")
         else:
@@ -146,7 +148,7 @@ class StockBot:
         cols = ['date', 'name', 'high', 'low', 'ema200']
         if self.is_bar_strategy():
             cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'SUPERTREND']
-        if not REAL_TIME:
+        if not self.real_time:
             cols += ['ema9', 'ema48', 'ema100']
         self.data_collection_df = pd.DataFrame(columns=cols)
         self.curr_data_entry = {}
@@ -212,7 +214,7 @@ class StockBot:
 
         rsi_results = np.array(rsi(s_close_old, length=length))
 
-        if REAL_TIME:
+        if self.real_time:
             self.curr_data_entry['RSI'] = float(format(rsi_results[candle_index], '.2f'))
             self.logger.info(f"\t\t[+] RSI condition is [{self.curr_data_entry['RSI'] > 50}]"
                              f" with [{self.curr_data_entry['RSI']} {'>' if self.curr_data_entry['RSI'] > 50 else '<'} 50]")
@@ -232,7 +234,7 @@ class StockBot:
                                            length=length, multiplier=multiplier)
         supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
 
-        if REAL_TIME:
+        if self.real_time:
             self.curr_data_entry['SUPERTREND'] = float(format(supertrend_results[candle_index], '.2f'))
             self.logger.info(f"\t\t[+] SUPERTREND condition is [{self.curr_data_entry['SUPERTREND'] < close[candle_index]}]"
                              f" with [{self.curr_data_entry['SUPERTREND']} (SUPERTREND) "
@@ -253,7 +255,7 @@ class StockBot:
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
         signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX])
 
-        if REAL_TIME:
+        if self.real_time:
             self.curr_data_entry['MACD'] = float(format(macd_data[candle_index], '.2f'))
             self.curr_data_entry['MACD_SIGNAL'] = float(format(signal_data[candle_index], '.2f'))
             self.logger.info(
@@ -342,8 +344,8 @@ class StockBot:
 
         return indices
 
-    def is_buy(self, client_index: int, index: int = None, real_time: bool = False) -> bool:
-        if real_time:
+    def is_buy(self, client_index: int, index: int = None) -> bool:
+        if self.real_time:
             self.logger.info("Performing is buy check in real time")
         if ALWAYS_BUY:
             if ALWAYS_BUY:
@@ -353,18 +355,20 @@ class StockBot:
             index = self.get_num_candles(client_index)-2 if index is None else index
         is_begin_day = self.clients[client_index].is_in_first_n_candles(n=N_FIRST_CANDLES_OF_DAY, candle_index=index)
         if is_begin_day:
-            self.logger.info("Blocking buy operation: beginning of day -> return [False]")
+            if self.real_time:
+                self.logger.info("Blocking buy operation: beginning of day -> return [False]")
             return False
         is_end_day = self.clients[client_index].is_in_last_n_candles(n=N_LAST_CANDLES_OF_DAY, candle_index=index)
         if is_end_day:
-            self.logger.info("Blocking buy operation: end of day -> return [False]")
+            if self.real_time:
+                self.logger.info("Blocking buy operation: end of day -> return [False]")
             return False
         op = '|' if self.is_bar_strategy() else '&'
 
         if self.data_changed[client_index]:
             approved_indices = self._is_criteria(cond_operation=op, client_index=client_index, candle_index=index)
             # data analysis of stock candles
-            if REAL_TIME:
+            if self.real_time:
                 self.extract_single_candle_data(client_index, index)
                 self.logger.info(f"Current candle analysis data: {self.curr_data_entry}")
                 self.flush_data_entry()
@@ -377,19 +381,23 @@ class StockBot:
         ret_val = np.isin([index], approved_indices)[0]
         
         if self.block_buy:
-            if(ret_val):
-                self.logger.info("Citeria met and buy is blocked -> return [False]")
+            if ret_val:
+                if self.real_time:
+                    self.logger.info("Citeria met and buy is blocked -> return [False]")
             else:
-                self.logger.info("Citeria not met and buy is blocked, Unblocking buy -> return [False]")
+                if self.real_time:
+                    self.logger.info("Citeria not met and buy is blocked, Unblocking buy -> return [False]")
                 self.block_buy = False
             return False
         else:
             if ret_val:
-                self.logger.info("Criteria met and buy is unblocked, blocking buy -> return [True]")
+                if self.real_time:
+                    self.logger.info("Criteria met and buy is unblocked, blocking buy -> return [True]")
                 self.block_buy = True
                 return True
             else:
-                self.logger.info("Criteria not met and buy is unblocked -> return [False]")
+                if self.real_time:
+                    self.logger.info("Criteria not met and buy is unblocked -> return [False]")
                 return False
 
     def extract_single_candle_data(self, client_index: int, candle_index: int):
@@ -488,13 +496,13 @@ class StockBot:
         self.capital -= self.latest_trade[client_index][AMOUNT]
         self.status[client_index] = SellStatus.BOUGHT
         self.logger.info("SellStatus changed -> [BOUGHT]")
-        if not REAL_TIME:
+        if not self.real_time:
             self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}")
             self.logger.info(f"Trade number: {self.get_num_trades()+1}")
             self.logger.info(f"Buy amount: {self.latest_trade[client_index][AMOUNT]}")
             self.logger.info (f"Stock price: {stock_price}")
 
-        if real_time:
+        if self.real_time:
             self.clients[client_index].buy_order(self.latest_trade[client_index][NUM_STOCKS],
                                                  stop_loss=float(format(self.stop_loss, '.2f')),
                                                  price=float(format(self.get_close_price(client_index, index-1), '.2f')))
@@ -509,8 +517,8 @@ class StockBot:
         self.logger.info(f"setting stop-loss to {stop_loss}")
         self.stop_loss = stop_loss
 
-    def sell(self, client_index: int, index: int = None, real_time=False) -> int:
-        if not REAL_TIME:
+    def sell(self, client_index: int, index: int = None) -> int:
+        if not self.real_time:
             self.logger.info("Selling...")
         if index is None:
             index = self.get_num_candles(client_index)-1 if index is None else index
@@ -576,7 +584,7 @@ class StockBot:
         self.capital += sell_price
         if self.rw_num_times_sold == 0:  # make sure that we are not in the middle of rw
             self.capital_history[self.get_num_trades()] = self.capital
-        if not REAL_TIME:
+        if not self.real_time:
             self.logger.info(f"\tSale date: {self.clients[client_index].get_candle_date(index)}\n\tSale amount: {sell_price}\n"
                             f"\tTrade no.: {self.get_num_trades()}\n"
                             f"\tStock price: {stock_price}")
@@ -655,9 +663,9 @@ class StockBot:
                     f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")
                 # TODO and not self.data_changed[j]
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
-                    condition = self.is_buy(client_index=j, real_time=True)  # does client need to buy
+                    condition = self.is_buy(client_index=j)  # does client need to buy
                     if condition:
-                        ret_val = self.buy(client_index=j, real_time=True)
+                        ret_val = self.buy(client_index=j)
                 if self.clients[j].is_day_last_transaction(-1):
                     is_eod = True
             await asyncio.sleep(self.main_loop_sleep_time)
@@ -754,7 +762,7 @@ if __name__ == '__main__':
         clients = [StockClientYfinance(name=name) if not REAL_TIME else StockClientInteractive(name=name, client=real_time_client) for name in STOCKS]
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
-        if REAL_TIME:
+        if sb.real_time:
             nest_asyncio.apply()
             for i, client in enumerate(clients):
                 if type(client) == StockClientInteractive:
