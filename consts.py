@@ -74,6 +74,7 @@ N_LAST_CANDLES_OF_DAY = 1
 EMA_LENGTH = 200
 CANDLE_DATA_CSV_NAME = 'candle_data.csv'
 TRADE_DATA_CSV_NAME = 'trade_data.csv'
+VIX = "^VIX"
 
 
 class TimeRes(Enum):

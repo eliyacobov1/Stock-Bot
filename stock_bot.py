@@ -20,7 +20,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
-                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME)
+                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -45,8 +45,9 @@ class StockBot:
                  ema_win_size: int = 10, risk_unit: float = None, risk_limit: float = None, start_capital: float = None,
                  use_pyr: bool = DEFAULT_USE_PYRAMID, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
                  log_to_file=False, tp_multiplier=TAKE_PROFIT_MULTIPLIER, sl_bound=STOP_LOSS_LOWER_BOUND, run_wins=USE_RUN_WINS,
-                 rw_take_profit_multiplier=RUN_WINS_TAKE_PROFIT_MULTIPLIER, rw_percent=RUN_WINS_PERCENT):
+                 rw_take_profit_multiplier=RUN_WINS_TAKE_PROFIT_MULTIPLIER, rw_percent=RUN_WINS_PERCENT, vix_client=None):
         self.clients = stock_clients
+        self.vix_client: StockClient = vix_client
         self.gain_avg = None
         self.loss_avg = None
         self.resolution = DEFAULT_RES
@@ -153,7 +154,7 @@ class StockBot:
         if self.is_bar_strategy():
             cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'SUPERTREND']
         if not self.real_time:
-            cols += ['ema9', 'ema48', 'ema100', 'vwap']
+            cols += ['ema9', 'ema48', 'ema100', 'vwap', VIX]
         self.data_collection_df = pd.DataFrame(columns=cols)
         self.curr_data_entry = {}
 
@@ -202,6 +203,8 @@ class StockBot:
         if self.period:
             for c in self.clients:
                 c.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
+            if self.vix_client is not None:
+                self.vix_client.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
         for i in range(len(self.data_changed)):
             self.data_changed[i] = True
 
@@ -444,6 +447,10 @@ class StockBot:
         self.data_collection_df['ema100'] = self.get_ema(client_index, length=100).tolist()
         self.data_collection_df['ema200'] = self.get_ema(client_index, length=200).tolist()
         self.data_collection_df['vwap'] = self.get_vwap(client_index).tolist()
+        # TODO ^VIX dates were sometimes inconsistent with other stock candle dates we got,
+        #  the indexing below is a temporary patch. Should try to find a better fix.
+        if self.vix_client is not None:
+            self.data_collection_df[VIX] = self.vix_client.get_closing_price()[self.clients[0].get_candle_dates()].tolist()
 
     def is_sell(self, client_index: int, index: int = None) -> bool:
         if index is None:
@@ -828,8 +835,9 @@ if __name__ == '__main__':
     if RUN_ROBOT:
         real_time_client = StockClientInteractive.init_client() if REAL_TIME else None
         clients = [StockClientYfinance(name=name) if not REAL_TIME else StockClientInteractive(name=name, client=real_time_client) for name in STOCKS]
+        vix_client = StockClientYfinance(name=VIX) if not REAL_TIME else None # this is used in order to get the value of ^VIX
 
-        sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST)
+        sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST, vix_client=vix_client)
         if sb.real_time:
             nest_asyncio.apply()
             for i, client in enumerate(clients):
