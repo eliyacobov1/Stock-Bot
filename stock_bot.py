@@ -616,7 +616,7 @@ class StockBot:
         """
         return any([self.status[k] == SellStatus.BOUGHT for k in range(len(self.clients))])
 
-    def calc_revenue(self, candle_range: Tuple[int, int] = None) -> float:
+    def main_loop_history(self, candle_range: Tuple[int, int] = None) -> float:
         if candle_range:
             start, end = candle_range
         else:
@@ -650,7 +650,7 @@ class StockBot:
             self.data_changed[client_index] = True
             self.logger.info(f"New candle added!")
 
-    async def main_loop(self) -> float:
+    async def main_loop_real_time(self) -> float:
         self.logger.info("------------------ Main loop ----------------------\n")
         is_eod = False
         while not is_eod:
@@ -714,7 +714,7 @@ def plot_capital_history(sb: StockBot, vals, path: str = None):
     for val in vals:
         sb.reset()
         sb.set_tp_multiplier(val)
-        sb.calc_revenue()
+        sb.main_loop_history()
         res = sb.capital_history[:sb.get_num_trades()]
         max_val = np.max(res)
         curr_min = min(capital_dic_array.values())
@@ -740,7 +740,7 @@ def filter_stocks(stocks: List[str], val: float):
     res = []
     for stock in stocks:
         sb = StockBot(stock_clients=[StockClientYfinance(name=stock)], period=period, use_pyr=True, criteria=DEFAULT_CRITERIA_LIST)
-        sb.calc_revenue()
+        sb.main_loop_history()
         if sb.get_profit_percentage() >= val:
             res.append(stock)
     return res
@@ -770,9 +770,9 @@ if __name__ == '__main__':
                     client.bind_sell_observer(lambda i=i: sb.sell(client_index=i))
                     sb.logger.info("--run robot--")
                     client.bind_cancel_observer(lambda i=i: sb.cancel_trade(client_index=i))
-            res = asyncio.run(sb.main_loop())
+            res = asyncio.run(sb.main_loop_real_time())
         else:
-            res = sb.calc_revenue()
+            res = sb.main_loop_history()
             sb.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME, index=False)
 
         if OUTPUT_PLOT:
