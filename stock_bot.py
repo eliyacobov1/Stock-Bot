@@ -653,7 +653,7 @@ class StockBot:
     async def main_loop_real_time(self) -> float:
         self.logger.info("------------------ Main loop ----------------------\n")
         is_eod = False
-        while not is_eod:
+        while not is_eod or self.is_client_occupied():
             self.logger.info("------------------ New iteration ------------------")
             for j in range(len(self.clients)):
                 self.logger.info(f"Total cash: [{self.clients[j].get_cash()}$]")
@@ -666,6 +666,11 @@ class StockBot:
                     condition = self.is_buy(client_index=j)  # does client need to buy
                     if condition:
                         ret_val = self.buy(client_index=j)
+
+                # reached last candle of the day while there's an open trade -> sell all stocks using sell market order
+                elif self.status[j] == SellStatus.BOUGHT and self.clients[j].is_day_last_transaction(-1):
+                    self.clients[j].sell_order()
+
                 if self.clients[j].is_day_last_transaction(-1):
                     is_eod = True
             await asyncio.sleep(self.main_loop_sleep_time)

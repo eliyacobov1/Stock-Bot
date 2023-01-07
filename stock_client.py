@@ -546,6 +546,8 @@ class StockClientInteractive(StockClient):
         quantity = self.get_current_quantity()
         self._sell_observer()
 
+        self.logger.info(f"Sell market order is called")
+
         if quantity:
             order = ib_insync.MarketOrder(
                 'SELL', quantity,
