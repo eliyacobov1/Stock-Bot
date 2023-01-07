@@ -501,7 +501,7 @@ class StockBot:
             self.logger.info(f"Buy date: {self.clients[client_index].get_candle_date(index)}")
             self.logger.info(f"Trade number: {self.get_num_trades()+1}")
             self.logger.info(f"Buy amount: {self.latest_trade[client_index][AMOUNT]}")
-            self.logger.info (f"Stock price: {stock_price}")
+            self.logger.info(f"Stock price: {stock_price}")
 
         if self.real_time:
             self.clients[client_index].buy_order(self.latest_trade[client_index][NUM_STOCKS],
