@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import sys
 
 import nest_asyncio
@@ -86,8 +87,8 @@ class StockBot:
         self.rw_percent = rw_percent
 
         num_candles = self.clients[0].get_num_candles()
-        self.capital_history = np.zeros(num_candles)
-        self.capital_history[0] = self.capital
+        self.capital_history = np.zeros((2, num_candles))
+        self.capital_history[:, 0] = [0, self.capital]
         self.gains = np.zeros(num_candles)
         self.eod_gains = np.zeros(num_candles)
         self.losses = np.zeros(num_candles)
@@ -598,7 +599,7 @@ class StockBot:
                     self.num_eod_losses += 1
         self.capital += sell_price
         if self.rw_num_times_sold == 0:  # make sure that we are not in the middle of rw
-            self.capital_history[self.get_num_trades()] = self.capital
+            self.capital_history[:, self.get_num_trades()] = [index, self.capital]
         if not self.real_time:
             self.logger.info(f"\tSale date: {self.clients[client_index].get_candle_date(index)}\n\tSale amount: {sell_price}\n"
                             f"\tTrade no.: {self.get_num_trades()}\n"
@@ -735,7 +736,7 @@ def plot_capital_history(sb: StockBot, vals, path: str = None):
         sb.reset()
         sb.set_tp_multiplier(val)
         sb.main_loop_history()
-        res = sb.capital_history[:sb.get_num_trades()]
+        res = sb.capital_history[1, :sb.get_num_trades()]
         max_val = np.max(res)
         curr_min = min(capital_dic_array.values())
         if max_val > curr_min:
@@ -750,8 +751,18 @@ def plot_capital_history(sb: StockBot, vals, path: str = None):
 
 
 def plot_capital(sb: StockBot):
-    plt.plot(sb.capital_history[:sb.get_num_trades()+1])
-    plt.xlabel('no. of trades')
+    # this inner function converts a pandas timestamp into a string date of format %d/%m
+    def convert_date(date: pd.Timestamp):
+        return date.to_pydatetime().strftime('%d/%m')
+
+    candle_dates: pd.Series = sb.clients[0].get_candle_dates()
+    x_points = [f"#{int(i)+1}: {convert_date(candle_dates[int(i)])}" for i in sb.capital_history[0, :sb.get_num_trades()+1]]
+    y_points = sb.capital_history[1, :sb.get_num_trades()+1]
+
+    plt.xticks(np.arange(0, len(x_points), 5))
+    plt.gcf().autofmt_xdate() # beautify the x-labels
+    plt.plot(x_points, y_points)
+    plt.xlabel('no. / date of trades')
     plt.ylabel('capital')
     plt.savefig("graph.png",  bbox_inches='tight')
 
