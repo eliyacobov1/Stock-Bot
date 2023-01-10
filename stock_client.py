@@ -12,6 +12,8 @@ import pandas as pd
 from consts import TimeRes, TradeTypes, SellStatus
 from utils import convert_timestamp_format, get_take_profit
 
+from utils import send_email_all,send_email_ele
+
 
 class StockClient(ABC):
     __slots__: List[str] = ['name', 'candles', '_client', '_res']
@@ -323,7 +325,7 @@ class StockClientInteractive(StockClient):
         self.logger = logging.getLogger('StockClient')
         self.logger.setLevel(logging.INFO)
         # Add the FileHandler object to the logger object
-        self.logger.addHandler(self.stream_handler)
+        self.logger.addHandler(self.file_handler)
         # Use the logger object to log a message
         self.logger.info("StockClient initialized")
 
@@ -442,6 +444,7 @@ class StockClientInteractive(StockClient):
 
     def cancel_callback(self, trade: ib_insync.Trade):
         self.logger.info(f"Order cancelled {trade.order}")
+        send_email_ele("Order cancelled", str(trade.order))
         action = trade.order.action
         if action == 'BUY':
             self._cancel_observer()
@@ -483,6 +486,7 @@ class StockClientInteractive(StockClient):
 
         status = trade.orderStatus.status
         self.logger.info(f"Order filled: {trade.order}")
+        send_email_all(f"Order Filled!",f"Stock: {self.name}\nOrder -> {str(trade.order)}")
 
         # transmit the take-profit sell order
         take_profit = float(format(get_take_profit(curr_price=price, stop_loss=stop_loss), '.2f'))
@@ -568,8 +572,6 @@ class StockClientInteractive(StockClient):
                 transmit=True,
                 outsideRth=True)
             trade = self._execute_order(order)
-            trade.cancelledEvent += self.cancel_callback
-            trade.filledEvent += self.sell_callback
         else:
             self.logger.info("could not execute sell market trade; Bought quantity is undefined")
 
@@ -581,6 +583,7 @@ class StockClientInteractive(StockClient):
                 self.logger.info("waiting trade to be done...")
                 self._client.waitOnUpdate()
         self.logger.info(f"Order executed: {trade.order}")
+        send_email_ele(f"Order Executed!",str(trade.order))
         return trade
 
     @staticmethod

@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import sys
 
 import nest_asyncio
@@ -10,9 +9,8 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from pandas_ta import rsi, macd, supertrend, ema, vwap
 import logging
-import pprint
 
-from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent, send_email)
+from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent, send_email_ele,send_email_all)
 from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
@@ -133,7 +131,7 @@ class StockBot:
 
         # Add the FileHandler object to the logger object
         if self.real_time:
-            self.logger.addHandler(self.stream_handler)
+            self.logger.addHandler(self.file_handler)
             self.logger.info("Real time mode")
         else:
             self.logger.addHandler(logging.StreamHandler(sys.stderr))
@@ -145,7 +143,7 @@ class StockBot:
         else:
             self.logger.info("StockBot initialized with candle strategy")
 
-        self.main_loop_sleep_time = 10
+        self.main_loop_sleep_time = 60
 
         self.trades_df = pd.DataFrame(columns=['name', 'date', 'number', 'type', 'price', 'amount', 'capital', 'sell type'])
 
@@ -430,7 +428,7 @@ class StockBot:
         self.curr_data_entry['high'] = self.clients[client_index].get_high_prices()[candle_index]
         self.curr_data_entry['low'] = self.clients[client_index].get_low_prices()[candle_index]
         self.curr_data_entry['ema9'] = self.get_ema(client_index, length=9)[candle_index]
-        self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[candle_index]
+        # self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[candle_index]
         self.curr_data_entry['ema48'] = self.get_ema(client_index, length=48)[candle_index]
         self.curr_data_entry['ema100'] = self.get_ema(client_index, length=100)[candle_index]
 
@@ -712,6 +710,7 @@ class StockBot:
 
     async def main_loop_real_time(self) -> float:
         self.logger.info("------------------ Main loop ----------------------\n")
+        send_email_all("Starting main loop ELE", f"Let's earn some money, Voovos!!!\nStocks: {STOCKS}")
         is_eod = False
         while not is_eod or self.is_client_occupied():
             self.logger.info("------------------ New iteration ------------------")
@@ -735,7 +734,7 @@ class StockBot:
                     is_eod = True
             await asyncio.sleep(self.main_loop_sleep_time)
             self.logger.info(f"------------------ End of iteration [{self.main_loop_sleep_time}] seconds --\n\n")
-
+        send_email_all("Main loop ELE ended", "Thank you...Voovo!!!")
         return self.capital
 
     def log_summary(self):

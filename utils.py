@@ -11,7 +11,8 @@ from secret import EMAIL_PASSWORD
 from consts import TAKE_PROFIT_MULTIPLIER, STOP_LOSS_PERCENTAGE_MARGIN
 
 EMAIL_SENDER = 'eleinvestgroup@gmail.com'
-EMAIL_RECEIVER = ['eladbeber619@gmail.com', 'elad_beber@walla.com', 'eli.yacobov1@gamil.com']
+EMAIL_RECEIVER_ALL = ['eladbeber619@gmail.com', 'elad_beber@walla.com', 'lidornu@gmail.com','eli.yacobov1@gmail.com']
+EMAIL_RECEIVER_ELE = ['eleinvestgroup@gmail.com']
 
 
 def minutes_to_secs(minutes: int):
@@ -46,10 +47,10 @@ def get_percent(n: int, percent: Union[float, int]) -> float:
     return n * (percent/100)
 
 
-def send_email(subject=None, body=None):
+def send_email_all(subject=None, body=None):
     em = EmailMessage()
     em['From'] = EMAIL_SENDER
-    em['To'] = EMAIL_RECEIVER
+    em['To'] = EMAIL_RECEIVER_ALL
     if subject:
         em['Subject'] = subject
     if body:
@@ -57,7 +58,20 @@ def send_email(subject=None, body=None):
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
         smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        smtp.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, em.as_string())
+        smtp.sendmail(EMAIL_SENDER, EMAIL_RECEIVER_ALL, em.as_string())
+
+def send_email_ele(subject=None, body=None):
+    em = EmailMessage()
+    em['From'] = EMAIL_SENDER
+    em['To'] = EMAIL_RECEIVER_ELE
+    if subject:
+        em['Subject'] = subject
+    if body:
+        em.set_content(body)
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context) as smtp:
+        smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        smtp.sendmail(EMAIL_SENDER, EMAIL_RECEIVER_ELE, em.as_string())
 
 
 def get_take_profit(curr_price, stop_loss, tp_multiplier=TAKE_PROFIT_MULTIPLIER):
