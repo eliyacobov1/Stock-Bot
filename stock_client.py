@@ -568,6 +568,8 @@ class StockClientInteractive(StockClient):
                 transmit=True,
                 outsideRth=True)
             trade = self._execute_order(order)
+            trade.cancelledEvent += self.cancel_callback
+            trade.filledEvent += self.sell_callback
         else:
             self.logger.info("could not execute sell market trade; Bought quantity is undefined")
 
