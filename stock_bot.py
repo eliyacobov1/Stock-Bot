@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import sys
 
 import nest_asyncio
@@ -112,7 +113,7 @@ class StockBot:
         self.set_criteria(criteria)
 
         # Define the log file name and the log formatting, including the date format
-        self.log_file = 'log.txt'
+        self.log_file = f'log_{datetime.datetime.now().strftime("%m_%d_%Y_%H-%M-%S")}.txt'
         self.log_format = '%(asctime)s - [%(name)s]    - [%(levelname)s] - %(message)s'
         self.date_format = '%Y-%m-%d %H:%M:%S'
         self.formatter = logging.Formatter(self.log_format, datefmt=self.date_format)
