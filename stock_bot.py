@@ -747,12 +747,12 @@ class StockBot:
         tpd_valid = self.trades_per_day[:np.where(self.trades_per_day == -1)[0][0]]
         gains = self.gains[:self.num_gains]
         losses = self.losses[:self.num_losses]
-        self.logger.info(f"Win percentage: {format(self.num_gains / (self.num_gains + self.num_losses), '.3f')}\n"
+        self.logger.info(f"Win percentage: {format((self.num_gains / (self.num_gains + self.num_losses)) if (self.num_gains + self.num_losses) > 0 else 0, '.3f')}\n"
                          f"Total trades: {self.get_num_trades()}\n"
                          f"Winning trades: {self.num_gains}\nLosing trades: {self.num_losses}\n"
                          f"Winning end of day trades: {self.num_eod_gains}\n"
                          f"Losing end of day trades: {self.num_eod_losses}\n"
-                         f"End of day gain / loss: {format(self.num_eod_gains / (self.num_eod_gains + self.num_eod_losses), '.3f')}\n"
+                         f"End of day gain / loss: {format((self.num_eod_gains / (self.num_eod_gains + self.num_eod_losses)) if (self.num_eod_gains + self.num_eod_losses) > 0 else 0, '.3f')}\n"
                          f"Gain average: {format(np.average(gains) if self.num_gains > 0 else 0, '.3f')}\n"
                          f"Gain max: {format(np.max(gains) if self.num_gains > 0 else 0, '.3f')}\n"
                          f"Gain min: {format(np.min(gains) if self.num_gains > 0 else 0, '.3f')}\n"
