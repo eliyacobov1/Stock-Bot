@@ -518,7 +518,8 @@ class StockBot:
 
         self.capital -= self.latest_trade[client_index][AMOUNT]
         self.status[client_index] = SellStatus.BOUGHT
-        self.logger.info("SellStatus changed -> [BOUGHT]")
+        if self.real_time:
+            self.logger.info("SellStatus changed -> [BOUGHT]")
 
         trade_data = {"date": self.clients[client_index].get_candle_date(index),
                       "number": self.get_num_trades()+1,
@@ -577,6 +578,8 @@ class StockBot:
 
         sell_price = stock_price*self.latest_trade[client_index][NUM_STOCKS]
         self.status[client_index] = SellStatus.SOLD
+        if self.real_time:
+            self.logger.info("SellStatus changed -> [SOLD]")
 
         is_eod = self.clients[client_index].is_day_last_transaction(index)
         profit = (sell_price / self.latest_trade[client_index][AMOUNT]) - 1
