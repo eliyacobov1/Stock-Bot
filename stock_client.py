@@ -307,7 +307,7 @@ class StockClientYfinance(StockClient):
 
 
 class StockClientInteractive(StockClient):
-    def __init__(self, name: str, demo=True, client: ib_insync.IB = None):
+    def __init__(self, name: str, demo=True, client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None):
         super(StockClient, self).__init__()
 
         # Define the log file name and the log formatting, including the date format
@@ -338,7 +338,7 @@ class StockClientInteractive(StockClient):
         self.logger.info("ib_insync client created")
 
         if not ib.isConnected():
-            ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=1)
+            ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=client_id if client_id is not None else 1)
         self.logger.info("Connected to IB")
 
         self.name = name

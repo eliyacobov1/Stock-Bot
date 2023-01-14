@@ -841,7 +841,9 @@ if __name__ == '__main__':
 
     if RUN_ROBOT:
         real_time_client = StockClientInteractive.init_client() if REAL_TIME else None
-        clients = [StockClientYfinance(name=name) if not REAL_TIME else StockClientInteractive(name=name, client=real_time_client) for name in STOCKS]
+        clients = [StockClientYfinance(name=name) if not REAL_TIME
+                   else StockClientInteractive(name=name, client=real_time_client, client_id=i+1)
+                   for i, name in enumerate(STOCKS)]
         vix_client = StockClientYfinance(name=VIX) if not REAL_TIME else None # this is used in order to get the value of ^VIX
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST, vix_client=vix_client)
