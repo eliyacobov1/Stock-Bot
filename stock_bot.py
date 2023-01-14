@@ -725,8 +725,10 @@ class StockBot:
                 self.add_candle(client_index=j)
                 self.logger.info(
                     f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")
-                # TODO and not self.data_changed[j]
-                if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
+
+                # try to buy only when new candle was added and no client is in a trade
+                if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied()\
+                        and self.data_changed[j]:
                     condition = self.is_buy(client_index=j)  # does client need to buy
                     if condition:
                         ret_val = self.buy(client_index=j)
