@@ -55,6 +55,8 @@ STOCKS = ["SOXL"]
 REAL_TIME = True
 ALWAYS_BUY = False  # for debugging
 
+DEBUG = False
+
 SELL_ON_TOUCH = True
 
 DEFAULT_RU_PERCENTAGE = 4

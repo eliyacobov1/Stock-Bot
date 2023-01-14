@@ -9,10 +9,10 @@ from typing import List, Union, Optional, Callable
 from abc import ABC, abstractmethod
 import pandas as pd
 
-from consts import TimeRes, TradeTypes, SellStatus
+from consts import TimeRes, TradeTypes, SellStatus, DEBUG
 from utils import convert_timestamp_format, get_take_profit
 
-from utils import send_email_all,send_email_ele
+from utils import send_email_all, send_email_ele
 
 
 class StockClient(ABC):
@@ -444,7 +444,8 @@ class StockClientInteractive(StockClient):
 
     def cancel_callback(self, trade: ib_insync.Trade):
         self.logger.info(f"Order cancelled {trade.order}")
-        send_email_ele("Order cancelled", str(trade.order))
+        if not DEBUG:
+            send_email_ele("Order cancelled", str(trade.order))
         action = trade.order.action
         if action == 'BUY':
             self._cancel_observer()
@@ -486,7 +487,8 @@ class StockClientInteractive(StockClient):
 
         status = trade.orderStatus.status
         self.logger.info(f"Order filled: {trade.order}")
-        send_email_all(f"Order Filled!",f"Stock: {self.name}\nOrder -> {str(trade.order)}")
+        if not DEBUG:
+            send_email_all(f"Order Filled!",f"Stock: {self.name}\nOrder -> {str(trade.order)}")
 
         # transmit the take-profit sell order
         take_profit = float(format(get_take_profit(curr_price=price, stop_loss=stop_loss), '.2f'))
@@ -585,7 +587,8 @@ class StockClientInteractive(StockClient):
                 self.logger.info("waiting trade to be done...")
                 self._client.waitOnUpdate()
         self.logger.info(f"Order executed: {trade.order}")
-        send_email_ele(f"Order Executed!",str(trade.order))
+        if not DEBUG:
+            send_email_ele(f"Order Executed!", str(trade.order))
         return trade
 
     @staticmethod

@@ -19,7 +19,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
-                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX)
+                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -714,7 +714,8 @@ class StockBot:
 
     async def main_loop_real_time(self) -> float:
         self.logger.info("------------------ Main loop ----------------------\n")
-        send_email_all("Starting main loop ELE", f"Let's earn some money, Voovos!!!\nStocks: {STOCKS}")
+        if not DEBUG:
+            send_email_all("Starting main loop ELE", f"Let's earn some money, Voovos!!!\nStocks: {STOCKS}")
         is_eod = False
         while not is_eod or self.is_client_occupied():
             self.logger.info("------------------ New iteration ------------------")
@@ -738,7 +739,8 @@ class StockBot:
                     is_eod = True
             await asyncio.sleep(self.main_loop_sleep_time)
             self.logger.info(f"------------------ End of iteration [{self.main_loop_sleep_time}] seconds --\n\n")
-        send_email_all("Main loop ELE ended", "Thank you...Voovo!!!")
+        if not DEBUG:
+            send_email_all("Main loop ELE ended", "Thank you...Voovo!!!")
         return self.capital
 
     def log_summary(self):
