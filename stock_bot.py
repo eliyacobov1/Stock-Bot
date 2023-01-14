@@ -534,7 +534,7 @@ class StockBot:
         if not self.real_time:
             self.logger.info(f"Buy date: {trade_data['date']}")
             self.logger.info(f"Trade number: {trade_data['number']}")
-            self.logger.info(f"Buy amount: {trade_data['amount']}")
+            self.logger.info(f"Buy amount: {format(trade_data['amount'], '.2f')}")
             self.logger.info(f"Stock price: {stock_price}")
 
         if self.real_time:
@@ -647,7 +647,7 @@ class StockBot:
         self.flush_trade_entry(trade_data)
 
         if not self.real_time:
-            self.logger.info(f"\tSale date: {trade_data['date']}\n\tSale amount: {sell_price}\n"
+            self.logger.info(f"\tSale date: {trade_data['date']}\n\tSale amount: {format(sell_price, '.2f')}\n"
                             f"\tTrade no.: {self.get_num_trades()}\n"
                             f"\tStock price: {stock_price}")
 
@@ -691,12 +691,12 @@ class StockBot:
                     if condition:
                         ret_val = self.buy(index=i, client_index=j)
                         if ret_val == TRADE_COMPLETE:  # in case trade was not complete
-                            self.logger.info(f"Current capital: {self.capital}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name: {self.clients[j].name}\n")
+                            self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name: {self.clients[j].name}\n")
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
                     condition = self.is_sell(index=i, client_index=j)
                     if condition:
                         price = self.sell(index=i, client_index=j)
-                        self.logger.info(f"Current capital: {self.capital}\nSell type: {GAIN if price > 0 else LOSS}\nStock name: {self.clients[j].name}\n")
+                        self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nSell type: {GAIN if price > 0 else LOSS}\nStock name: {self.clients[j].name}\n")
             # update the number of trades per day
             if i > 0 and self.clients[0].is_day_last_transaction(i-1):  # first candle of the day
                 curr_day_index = np.where(self.trades_per_day == -1)[0][0]
