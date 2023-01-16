@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, List
 
 import numpy as np
 from datetime import datetime, timezone, timedelta
@@ -6,6 +6,8 @@ from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
 import ssl
 import smtplib
+
+import pandas
 
 from secret import EMAIL_PASSWORD
 from consts import TAKE_PROFIT_MULTIPLIER, STOP_LOSS_PERCENTAGE_MARGIN
@@ -80,3 +82,8 @@ def get_take_profit(curr_price, stop_loss, tp_multiplier=TAKE_PROFIT_MULTIPLIER)
     """
     loss_percentage = 1 - (stop_loss / curr_price)
     return curr_price * ((loss_percentage * tp_multiplier) + 1)
+
+
+def reindex_df(df: pandas.DataFrame, index: List[str]):
+    df.set_index(index, inplace=True)
+    df.sort_index(inplace=True)

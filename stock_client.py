@@ -10,9 +10,7 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 from consts import TimeRes, TradeTypes, SellStatus, DEBUG
-from utils import convert_timestamp_format, get_take_profit
-
-from utils import send_email_all, send_email_ele
+from utils import convert_timestamp_format, get_take_profit, send_email_all, send_email_ele, reindex_df
 
 
 class StockClient(ABC):
@@ -395,10 +393,10 @@ class StockClientInteractive(StockClient):
         return last_transaction_time in self.get_candle_date(i)
 
     def get_candle_date(self, i: int) -> str:
-        return str(self.candles.iloc[i].date)
+        return str(self.candles.index[i])
 
     def get_candle_dates(self) -> pd.Series:
-        return self.candles["date"]
+        return self.candles.index
 
     def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
         self.logger.info("Buy order called")
@@ -611,9 +609,11 @@ class StockClientInteractive(StockClient):
 
     def parse_date(self, date: str = None, candle_index: int = None) -> datetime.time:
         if date is None:
-            date_str = str(self.candles.iloc[candle_index].date).split("-")[2].split()[-1].split(":")
-        else:
-            date_str = date.split("-")[2].split()[-1].split(":")
+            if 'date' not in self.candles:
+                date = str(self.candles.iloc[candle_index].name)
+            else:
+                date = str(self.candles.iloc[candle_index]['date'])
+        date_str = date.split("-")[2].split()[-1].split(":")
         h, m, s = date_str
         return datetime.time(hour=int(h), minute=int(m), second=int(s))
 
@@ -637,6 +637,7 @@ class StockClientInteractive(StockClient):
         return self.candles.shape[0]
 
     def add_candle(self) -> True:
+        self.candles.reset_index(inplace=True)
         candles = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(self._res),
                                                  barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=False)
         while len(candles) == 0:
@@ -652,6 +653,7 @@ class StockClientInteractive(StockClient):
         elif len(df_candles) > 1:
             self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
         self.candles = self.candles.append(df_candles.iloc[-1], ignore_index=True)
+        reindex_df(self.candles, ['date'])
         return True
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
@@ -665,3 +667,4 @@ class StockClientInteractive(StockClient):
         while len(candles) == 0:
             self._client.waitOnUpdate()
         self.candles = ib_insync.util.df(candles)
+        reindex_df(self.candles, ['date'])

@@ -11,7 +11,8 @@ from matplotlib import pyplot as plt
 from pandas_ta import rsi, macd, supertrend, ema, vwap
 import logging
 
-from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent, send_email_ele,send_email_all)
+from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent,
+                   send_email_ele, send_email_all, reindex_df)
 from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX, SellStatus, CRITERIA, LOGGER_NAME,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
@@ -146,31 +147,50 @@ class StockBot:
 
         self.main_loop_sleep_time = 60
 
-        self.trades_df = pd.DataFrame(columns=['name', 'date', 'number', 'type', 'price', 'amount', 'capital', 'sell type'])
-
-        # create a dataframe to store runtime analysis candle data
-        cols = ['date', 'name', 'high', 'low', 'ema200']
+        # create dataframes to store runtime analysis candle data and trade data
+        index_cols = ['date', 'name']
+        cols = ['high', 'low', 'ema200']
         if self.is_bar_strategy():
             cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'SUPERTREND']
         if not self.real_time:
             cols += ['ema9', 'ema48', 'ema100', 'vwap', VIX]
-        self.data_collection_df = pd.DataFrame(columns=cols)
+
+        self.data_collection_df = pd.DataFrame(columns=index_cols+cols)
+        # used to store candle data for specific client before concatenation
+        # to data_collection_df that contains data for all clients
+        self.temp_client_candle_df = pd.DataFrame(columns=index_cols+cols)
+
+        reindex_df(self.data_collection_df, ['date', 'name'])
+        self.trades_df = pd.DataFrame(
+            columns=index_cols + ['number', 'type', 'price', 'amount', 'capital', 'sell type'] + cols)
         self.curr_data_entry = {}
 
         self.logger.setLevel(logging.INFO)
+
+    def _reset_temp_candle_df(self):
+        self.temp_client_candle_df = self.temp_client_candle_df.iloc[0:0]
 
     def flush_candle_data_entry(self):
         """
         append a row to the self.data_collection_df- a dataframe that collects candle data
         """
-        self.data_collection_df = self.data_collection_df.append(self.curr_data_entry, ignore_index=True)
-        self.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME, index=False)  # flush to disk to save progress
+        self.data_collection_df.loc[(self.curr_data_entry['date'], self.curr_data_entry['name']), :] =\
+            [self.curr_data_entry.get(col, '') for col in self.data_collection_df.columns]
+        self.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME)  # flush to disk to save progress
         self.curr_data_entry = {}
 
     def flush_trade_entry(self, trade_entry: Dict):
-        self.trades_df = self.trades_df.append(trade_entry, ignore_index=True)
-        if self.real_time:  # for history mode, we write the csv to disk at the end of the run
-            self.trades_df.to_csv(TRADE_DATA_CSV_NAME, index=False)  # flush to disk to save progress
+        """
+        adds a new row to the trade report
+        """
+        try:
+            candle_data: Dict = self.data_collection_df.loc[(trade_entry['date'], trade_entry['name']), :].iloc[0].to_dict()
+            row: Dict = dict(trade_entry, **candle_data)
+            self.trades_df = self.trades_df.append(row, ignore_index=True)
+            if self.real_time:  # for history mode, we write the csv to disk at the end of the run
+                self.trades_df.to_csv(TRADE_DATA_CSV_NAME, index=False)  # flush to disk to save progress
+        except KeyError:  # in case candle data is not found
+            return
 
     def get_close_price(self, client_index: int, index=-1):
         closing_price = self.clients[client_index].get_closing_price()
@@ -230,7 +250,7 @@ class StockBot:
             self.logger.info(f"\t\t[+] RSI condition is [{self.curr_data_entry['RSI'] > 50}]"
                              f" with [{self.curr_data_entry['RSI']} {'>' if self.curr_data_entry['RSI'] > 50 else '<'} 50]")
         else:
-            self.data_collection_df['RSI'] = rsi_results.tolist()
+            self.temp_client_candle_df['RSI'] = rsi_results.tolist()
 
         return np.where(rsi_results > 50)
 
@@ -252,7 +272,7 @@ class StockBot:
                              f"{'>' if self.curr_data_entry['SUPERTREND'] > close[candle_index] else '<'}"
                              f" {close[candle_index]} (close_price)]")
         else:
-            self.data_collection_df['SUPERTREND'] = supertrend_results.tolist()
+            self.temp_client_candle_df['SUPERTREND'] = supertrend_results.tolist()
 
         indices = np.where(supertrend_results < close)
 
@@ -279,8 +299,8 @@ class StockBot:
                 f" with [{self.curr_data_entry['MACD']} (MACD) "
                 f"{'>' if self.curr_data_entry['MACD'] > 0 else '<'} 0]")
         else:
-            self.data_collection_df['MACD'] = macd_data.tolist()
-            self.data_collection_df['MACD_SIGNAL'] = signal_data.tolist()
+            self.temp_client_candle_df['MACD'] = macd_data.tolist()
+            self.temp_client_candle_df['MACD_SIGNAL'] = signal_data.tolist()
 
         indices = np.where((macd_data > signal_data) & (macd_data < 0))
         indices_as_nd = np.array(indices)
@@ -435,21 +455,33 @@ class StockBot:
 
     def extract_candle_data_table(self, client_index: int):
         """
-        builds a dataframe containing info fields (low, high, ema etc..) about the given client candles
+        builds a dataframe containing info fields (low, high, ema etc..) about the given client candles.
         """
-        self.data_collection_df['name'] = self.clients[client_index].name
-        self.data_collection_df['date'] = self.clients[client_index].get_candle_dates().tolist()
-        self.data_collection_df['low'] = self.clients[client_index].get_low_prices().tolist()
-        self.data_collection_df['high'] = self.clients[client_index].get_high_prices().tolist()
-        self.data_collection_df['ema9'] = self.get_ema(client_index, length=9).tolist()
-        self.data_collection_df['ema48'] = self.get_ema(client_index, length=48).tolist()
-        self.data_collection_df['ema100'] = self.get_ema(client_index, length=100).tolist()
-        self.data_collection_df['ema200'] = self.get_ema(client_index, length=200).tolist()
-        self.data_collection_df['vwap'] = self.get_vwap(client_index).tolist()
+        self.data_collection_df.reset_index(inplace=True)
+
+        self.temp_client_candle_df['name'] = self.clients[client_index].name
+        self.temp_client_candle_df['date'] = self.clients[client_index].get_candle_dates().tolist()
+        self.temp_client_candle_df['low'] = self.clients[client_index].get_low_prices().tolist()
+        self.temp_client_candle_df['high'] = self.clients[client_index].get_high_prices().tolist()
+        if len(self.clients[client_index].candles) >= 10:
+            self.temp_client_candle_df['ema9'] = self.get_ema(client_index, length=9).tolist()
+        if len(self.clients[client_index].candles) >= 49:
+            self.temp_client_candle_df['ema48'] = self.get_ema(client_index, length=48).tolist()
+        if len(self.clients[client_index].candles) >= 101:
+            self.temp_client_candle_df['ema100'] = self.get_ema(client_index, length=100).tolist()
+        if len(self.clients[client_index].candles) >= 201:
+            self.temp_client_candle_df['ema200'] = self.get_ema(client_index, length=200).tolist()
+        self.temp_client_candle_df['vwap'] = self.get_vwap(client_index).tolist()
         # TODO ^VIX dates were sometimes inconsistent with other stock candle dates we got,
         #  the indexing below is a temporary patch. Should try to find a better fix.
         if self.vix_client is not None:
-            self.data_collection_df[VIX] = self.vix_client.get_closing_price()[self.clients[0].get_candle_dates()].tolist()
+            self.temp_client_candle_df[VIX] = self.vix_client.get_closing_price()[self.clients[0].get_candle_dates()].tolist()
+
+        self.data_collection_df = pd.concat([self.data_collection_df, self.temp_client_candle_df])
+        self._reset_temp_candle_df()
+        # now that the candle data was added, multiindex to make further operations faster
+        if not self.real_time:
+            reindex_df(self.data_collection_df, ['date', 'name'])
 
     def is_sell(self, client_index: int, index: int = None) -> bool:
         if index is None:
@@ -830,7 +862,7 @@ def filter_stocks(stocks: List[str], val: float):
 
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
-    period = f'{"3 D" if REAL_TIME else "60d"}'  # fetch candles from 3 days for real-time and 60 days for history run
+    period = f'{"3 D" if REAL_TIME else "60 D"}'  # fetch candles from 3 days for real-time and 60 days for history run
 
     from stock_client import StockClientYfinance, StockClientInteractive
 
@@ -841,10 +873,10 @@ if __name__ == '__main__':
 
     if RUN_ROBOT:
         real_time_client = StockClientInteractive.init_client() if REAL_TIME else None
-        clients = [StockClientYfinance(name=name) if not REAL_TIME
-                   else StockClientInteractive(name=name, client=real_time_client, client_id=i+1)
-                   for i, name in enumerate(STOCKS)]
-        vix_client = StockClientYfinance(name=VIX) if not REAL_TIME else None # this is used in order to get the value of ^VIX
+        clients = [StockClientInteractive(name=name, client=real_time_client, client_id=i+1) for i, name in enumerate(STOCKS)]
+        # this is used in order to get the value of ^VIX
+        # vix_client = StockClientInteractive(name=VIX, client_id=len(clients)+1) if not REAL_TIME else None
+        vix_client = None  # todo need to make this work with interactive
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST, vix_client=vix_client)
         if sb.real_time:
@@ -858,7 +890,7 @@ if __name__ == '__main__':
             res = asyncio.run(sb.main_loop_real_time())
         else:
             res = sb.main_loop_history()
-            sb.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME, index=False)
+            sb.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME)
             sb.trades_df.to_csv(TRADE_DATA_CSV_NAME, index=False)
 
         if OUTPUT_PLOT:
