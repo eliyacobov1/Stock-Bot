@@ -639,7 +639,7 @@ class StockClientInteractive(StockClient):
     def add_candle(self) -> True:
         self.candles.reset_index(inplace=True)
         candles = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(self._res),
-                                                 barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=False)
+                                                 barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=True)
         while len(candles) == 0:
             self.logger.info("waiting for data")
             self._client.sleep(2)
