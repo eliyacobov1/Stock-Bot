@@ -533,6 +533,8 @@ class StockClientInteractive(StockClient):
 
     def sell_callback(self, trade: ib_insync.Trade):
         self.logger.info(f"Order filled: {trade.order}")
+        send_email_all(f"Order Filled!",f"Stock: {self.name}\nOrder -> {str(trade.order)}")
+
         self._reset_trades(trade_type=TradeTypes.BUY)
 
         price = trade.orderStatus.avgFillPrice  # TODO check this
