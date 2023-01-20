@@ -749,6 +749,7 @@ class StockBot:
         if not DEBUG:
             send_email_all("Starting main loop ELE", f"Let's earn some money, Voovos!!!\nStocks: {STOCKS}")
         is_eod = False
+        trading_started = False
         while not is_eod or self.is_client_occupied():
             self.logger.info("------------------ New iteration ------------------")
             for j in range(len(self.clients)):
@@ -769,8 +770,13 @@ class StockBot:
                 elif self.status[j] == SellStatus.BOUGHT and self.clients[j].is_day_last_transaction(-1):
                     self.clients[j].sell_order()
 
+                # we check if eod is reached after candles in trading hours were obsereved
+                # because otherwise we could end the loop before even reaching trading hours 
                 if self.clients[j].is_day_last_transaction(-1):
-                    is_eod = True
+                    if trading_started:
+                        is_eod = True
+                else:
+                    trading_started = True
             await asyncio.sleep(self.main_loop_sleep_time)
             self.logger.info(f"------------------ End of iteration [{self.main_loop_sleep_time}] seconds --\n\n")
         if not DEBUG:
