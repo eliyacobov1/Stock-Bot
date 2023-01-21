@@ -20,7 +20,8 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
-                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG)
+                    REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG,
+                    TRADE_SUMMARY_CSV_NAME)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -867,6 +868,49 @@ def filter_stocks(stocks: List[str], val: float):
     return res
 
 
+def generate_trade_summary(sb: StockBot) -> pd.DataFrame:
+    """
+    this fucntion will generate a trade summary from the trade data of the given bot
+    """
+    trade_summary: pd.DataFrame = pd.DataFrame(columns=["name",
+                                                        "buy date",
+                                                        "sell date",
+                                                        "number",
+                                                        "entry price",
+                                                        "exit price",
+                                                        "capital before",
+                                                        "capital after",
+                                                        "profit %",
+                                                        "profit $"])
+    trade_actions: pd.DataFrame = sb.trades_df
+    for i in range(0, trade_actions.shape[0], 2):
+        if i == trade_actions.shape[0]-1:
+            break  # in case last trade wasn't sold yet
+        
+        buy_action = trade_actions.iloc[i, :]
+        sell_action = trade_actions.iloc[i+1, :]
+        
+        if buy_action["type"].lower() != 'buy' or sell_action["type"].lower() != 'sell':
+            break  # each buy action should be followed buy a sell action
+        
+        trade_row = {
+            "name": buy_action["name"],
+            "buy date": buy_action["date"],
+            "sell date": sell_action["date"],
+            "number": buy_action["number"],
+            "entry price": buy_action["price"],
+            "exit price": sell_action["price"],
+            "capital before": buy_action["capital"] + buy_action["amount"],
+            "capital after": sell_action["capital"],
+        }
+        trade_row["profit $"] = trade_row["capital after"] - trade_row["capital before"]
+        trade_row["profit %"] = (trade_row["profit $"] / trade_row["capital before"]) * 100
+        
+        trade_summary = trade_summary.append(trade_row, ignore_index=True)
+    
+    return trade_summary
+
+
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
     period = f'{"3 D" if REAL_TIME else "60 D"}'  # fetch candles from 3 days for real-time and 60 days for history run
@@ -899,6 +943,8 @@ if __name__ == '__main__':
             res = sb.main_loop_history()
             sb.data_collection_df.to_csv(CANDLE_DATA_CSV_NAME)
             sb.trades_df.to_csv(TRADE_DATA_CSV_NAME, index=False)
+            trade_summary: pd.DataFrame = generate_trade_summary(sb)
+            trade_summary.to_csv(TRADE_SUMMARY_CSV_NAME, index=False)
 
         if OUTPUT_PLOT:
             plot_capital(sb)
