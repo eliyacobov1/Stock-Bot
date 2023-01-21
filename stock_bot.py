@@ -845,7 +845,8 @@ def plot_capital(sb: StockBot):
         return date.to_pydatetime().strftime('%d/%m')
 
     candle_dates: pd.Series = sb.clients[0].get_candle_dates()
-    x_points = [f"#{int(i)+1}: {convert_date(candle_dates[int(i)])}" for i in sb.capital_history[0, :sb.get_num_trades()+1]]
+    x_points = [f"#{int(i)+1}: {convert_date(candle_dates[int(candle_num)])}" for i, candle_num
+                in enumerate(sb.capital_history[0, :sb.get_num_trades()+1])]
     y_points = sb.capital_history[1, :sb.get_num_trades()+1]
 
     plt.xticks(np.arange(0, len(x_points), 5))
