@@ -150,7 +150,7 @@ class StockBot:
 
         # create dataframes to store runtime analysis candle data and trade data
         index_cols = ['date', 'name']
-        cols = ['high', 'low', 'ema200']
+        cols = ['high', 'low', 'close', 'ema200']
         if self.is_bar_strategy():
             cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'SUPERTREND']
         if not self.real_time:
@@ -449,6 +449,7 @@ class StockBot:
         self.curr_data_entry['date'] = self.clients[client_index].get_candle_date(candle_index)
         self.curr_data_entry['high'] = self.clients[client_index].get_high_prices()[candle_index]
         self.curr_data_entry['low'] = self.clients[client_index].get_low_prices()[candle_index]
+        self.curr_data_entry['close'] = self.clients[client_index].get_closing_price()[candle_index]
         self.curr_data_entry['ema9'] = self.get_ema(client_index, length=9)[candle_index]
         # self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[candle_index]
         self.curr_data_entry['ema48'] = self.get_ema(client_index, length=48)[candle_index]
@@ -464,6 +465,7 @@ class StockBot:
         self.temp_client_candle_df['date'] = self.clients[client_index].get_candle_dates().tolist()
         self.temp_client_candle_df['low'] = self.clients[client_index].get_low_prices().tolist()
         self.temp_client_candle_df['high'] = self.clients[client_index].get_high_prices().tolist()
+        self.temp_client_candle_df['close'] = self.clients[client_index].get_closing_price().tolist()
         if len(self.clients[client_index].candles) >= 10:
             self.temp_client_candle_df['ema9'] = self.get_ema(client_index, length=9).tolist()
         if len(self.clients[client_index].candles) >= 49:
