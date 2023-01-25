@@ -79,6 +79,11 @@ TRADE_DATA_CSV_NAME = 'trade_data.csv'
 TRADE_SUMMARY_CSV_NAME = 'trade_summary.csv'
 VIX = "^VIX"
 
+# period of candle history to fetch on init
+REAL_TIME_PERIOD = 3
+HISTORY_PERIOD = 60
+PYR_RISK_UNIT_CALCULATION_PERIOD = 30
+
 
 class TimeRes(Enum):
     MINUTE_1 = 0

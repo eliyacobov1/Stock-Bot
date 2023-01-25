@@ -21,7 +21,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
                     REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG,
-                    TRADE_SUMMARY_CSV_NAME)
+                    TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -46,7 +46,8 @@ class StockBot:
                  ema_win_size: int = 10, risk_unit: float = None, risk_limit: float = None, start_capital: float = None,
                  use_pyr: bool = DEFAULT_USE_PYRAMID, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
                  log_to_file=False, tp_multiplier=TAKE_PROFIT_MULTIPLIER, sl_bound=STOP_LOSS_LOWER_BOUND, run_wins=USE_RUN_WINS,
-                 rw_take_profit_multiplier=RUN_WINS_TAKE_PROFIT_MULTIPLIER, rw_percent=RUN_WINS_PERCENT, vix_client=None):
+                 rw_take_profit_multiplier=RUN_WINS_TAKE_PROFIT_MULTIPLIER, rw_percent=RUN_WINS_PERCENT, vix_client=None,
+                 enable_history_log: bool = True, real_time: bool = REAL_TIME):
         self.clients = stock_clients
         self.vix_client: StockClient = vix_client
         self.gain_avg = None
@@ -55,6 +56,8 @@ class StockBot:
         self.start_time = start
         self.end_time = end
         self.period = period
+        
+        self.enable_history_log = enable_history_log
 
         self.take_profit_multiplier = tp_multiplier
         self.stop_loss_bound = sl_bound
@@ -119,31 +122,32 @@ class StockBot:
         self.log_format = '%(asctime)s - [%(name)s]    - [%(levelname)s] - %(message)s'
         self.date_format = '%Y-%m-%d %H:%M:%S'
         self.formatter = logging.Formatter(self.log_format, datefmt=self.date_format)
-        # Create a FileHandler object and set the log file name and the log formatting
-        self.file_handler = logging.FileHandler(self.log_file)
+        # set log formatting
         self.stream_handler = logging.StreamHandler()
-        self.file_handler.setFormatter(self.formatter)
         self.stream_handler.setFormatter(self.formatter)
 
         # Create a logger object
         self.logger = logging.getLogger('StockBot')
         self.logger.setLevel(logging.INFO)
 
-        self.real_time = REAL_TIME
+        self.real_time = real_time
         self.sell_on_touch = SELL_ON_TOUCH
 
         # Add the FileHandler object to the logger object
         if self.real_time:
+            # Create a FileHandler object and set the log file name
+            self.file_handler = logging.FileHandler(self.log_file)
+            self.file_handler.setFormatter(self.formatter)
             self.logger.addHandler(self.file_handler)
             self.logger.info("Real time mode")
-        else:
+        elif self.enable_history_log:
             self.logger.addHandler(logging.StreamHandler(sys.stderr))
             self.logger.info("History collection mode")
 
         # check which strategy is used is True and log it
-        if self.is_bar_strategy():
+        if self.is_bar_strategy() and (self.real_time or self.enable_history_log):
             self.logger.info("StockBot initialized with bar strategy")
-        else:
+        elif self.real_time or self.enable_history_log:
             self.logger.info("StockBot initialized with candle strategy")
 
         self.main_loop_sleep_time = 60
@@ -325,7 +329,8 @@ class StockBot:
         open_prices = self.clients[client_index].get_opening_price()
         high_prices = self.clients[client_index].get_high_prices()
         low_prices = self.clients[client_index].get_low_prices()
-        self.logger.info("calculating EMA")
+        if self.real_time or self.enable_history_log:
+            self.logger.info("calculating EMA")
         ema = self.get_ema(client_index)
 
         positive_candles = close_prices[:-1] - open_prices[:-1]
@@ -345,7 +350,8 @@ class StockBot:
         close_prices = self.clients[client_index].get_closing_price()
         high_prices = self.clients[client_index].get_high_prices()
         low_prices = self.clients[client_index].get_low_prices()
-        self.logger.info("calculating EMA")
+        if self.real_time or self.enable_history_log:
+            self.logger.info("calculating EMA")
         ema = self.get_ema(client_index)
 
         # 1st candle high+low bigger than 2nd candle high+low
@@ -370,7 +376,8 @@ class StockBot:
         """
         indices = np.arange(self.get_num_candles(client_index)) if cond_operation == '&' else np.empty(0)
         for c in self.criteria:
-            self.logger.info("Calculating criteria: {}".format(c))
+            if self.real_time or self.enable_history_log:
+                self.logger.info("Calculating criteria: {}".format(c))
             callback: Callable[[int, int], np.ndarray] = self.criteria_func_data_mapping[c]
             criterion_indices = callback(client_index, candle_index)
             if cond_operation == '&':
@@ -508,7 +515,8 @@ class StockBot:
         return client_latest_trade[STOCK_PRICE]
 
     def buy(self, client_index: int, index: int = None, real_time=False) -> int:
-        self.logger.info("---Buying---")
+        if self.real_time or self.enable_history_log:
+            self.logger.info("---Buying---")
         if index is None:  # real-time
             index = self.get_num_candles(client_index)-1
         low_prices = self.clients[client_index].get_low_prices()
@@ -531,7 +539,7 @@ class StockBot:
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
-        if loss_percentage > self.stop_loss_bound:
+        if loss_percentage > self.stop_loss_bound and (self.real_time or self.enable_history_log):
             self.logger.info("Loss precentage is bigger than stop loss bound, aborting... -> return [trade not complete]")
             return TRADE_NOT_COMPLETE
         self.stop_loss = stock_price * (1-loss_percentage)
@@ -566,7 +574,7 @@ class StockBot:
                       "name": self.clients[client_index].name}
         self.flush_trade_entry(trade_data)
 
-        if not self.real_time:
+        if not self.real_time and self.enable_history_log:
             self.logger.info(f"Buy date: {trade_data['date']}")
             self.logger.info(f"Trade number: {trade_data['number']}")
             self.logger.info(f"Buy amount: {format(trade_data['amount'], '.2f')}")
@@ -588,11 +596,11 @@ class StockBot:
         self.stop_loss = stop_loss
 
     def sell(self, client_index: int, index: int = None) -> int:
-        if not self.real_time:
+        if not self.real_time and self.enable_history_log:
             self.logger.info("Selling...")
         if index is None:
             index = self.get_num_candles(client_index)-1 if index is None else index
-        if self.status[client_index] != SellStatus.BOUGHT:
+        if self.status[client_index] != SellStatus.BOUGHT and self.enable_history_log:
             self.logger.info("Tried selling before buying a stock")
             return 0
 
@@ -640,7 +648,8 @@ class StockBot:
                 self.latest_trade[client_index] = [self.latest_trade[client_index][AMOUNT]-relative_prev_trade_amount,
                                                    self.latest_trade[client_index][NUM_STOCKS]-num_stocks_sold,
                                                    stock_price]
-                self.logger.info(f"Let the wins run no. {self.rw_num_times_sold}; Selling {self.rw_percent} of bought amount")
+                if self.enable_history_log:
+                    self.logger.info(f"Let the wins run no. {self.rw_num_times_sold}; Selling {self.rw_percent} of bought amount")
             else:
                 self.rw_num_times_sold = 0
                 add_to_log = False
@@ -681,7 +690,7 @@ class StockBot:
                       "name": self.clients[client_index].name}
         self.flush_trade_entry(trade_data)
 
-        if not self.real_time:
+        if not self.real_time and self.enable_history_log:
             self.logger.info(f"\tSale date: {trade_data['date']}\n\tSale amount: {format(sell_price, '.2f')}\n"
                             f"\tTrade no.: {self.get_num_trades()}\n"
                             f"\tStock price: {stock_price}")
@@ -725,19 +734,21 @@ class StockBot:
                     condition = self.is_buy(index=i, client_index=j)
                     if condition:
                         ret_val = self.buy(index=i, client_index=j)
-                        if ret_val == TRADE_COMPLETE:  # in case trade was not complete
+                        if ret_val == TRADE_COMPLETE and self.enable_history_log:  # in case trade was not complete
                             self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name: {self.clients[j].name}\n")
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
                     condition = self.is_sell(index=i, client_index=j)
                     if condition:
                         price = self.sell(index=i, client_index=j)
-                        self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nSell type: {GAIN if price > 0 else LOSS}\nStock name: {self.clients[j].name}\n")
+                        if self.enable_history_log:
+                            self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nSell type: {GAIN if price > 0 else LOSS}\nStock name: {self.clients[j].name}\n")
             # update the number of trades per day
             if i > 0 and self.clients[0].is_day_last_transaction(i-1):  # first candle of the day
                 curr_day_index = np.where(self.trades_per_day == -1)[0][0]
                 self.trades_per_day[curr_day_index] = self.get_num_trades() - (np.sum(self.trades_per_day[:curr_day_index]))
-
-        self.log_summary()
+                
+        if self.enable_history_log:
+            self.log_summary()
         return self.capital
 
     def add_candle(self, client_index: int):
@@ -915,7 +926,8 @@ def generate_trade_summary(sb: StockBot) -> pd.DataFrame:
 
 if __name__ == '__main__':
     curr_time = get_curr_utc_2_timestamp()  # current time in utc+2
-    period = f'{"3 D" if REAL_TIME else "60 D"}'  # fetch candles from 3 days for real-time and 60 days for history run
+    # fetch candles from 3 days for real-time and 60 days for history run
+    period = f'{f"{REAL_TIME_PERIOD} D" if REAL_TIME else f"{HISTORY_PERIOD} D"}'
 
     from stock_client import StockClientYfinance, StockClientInteractive
 
@@ -933,6 +945,19 @@ if __name__ == '__main__':
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST, vix_client=vix_client)
         if sb.real_time:
+            if DEFAULT_USE_PYRAMID:
+                # calculate updated risk unit before running real-time
+                sb.logger.info("performing risk unit calculation...")
+                stock_bot_history_mode = StockBot(stock_clients=clients,
+                                                  period=f"{PYR_RISK_UNIT_CALCULATION_PERIOD} D",
+                                                  criteria=DEFAULT_CRITERIA_LIST,
+                                                  enable_history_log=False,
+                                                  real_time=False)
+                stock_bot_history_mode.main_loop_history()
+                sb.risk_unit = stock_bot_history_mode.risk_unit
+                sb.logger.info(f"calculation finished with [risk_unit == {sb.risk_unit}]")
+                sb.set_candle_data()
+            
             nest_asyncio.apply()
             for i, client in enumerate(clients):
                 if type(client) == StockClientInteractive:
