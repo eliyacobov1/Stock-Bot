@@ -645,7 +645,7 @@ class StockClientInteractive(StockClient):
         while len(candles) == 0:
             self.logger.info("waiting for data")
             self._client.sleep(2)
-        df_candles = ib_insync.util.df(candles)
+        df_candles = ib_insync.util.df(candles).round(2)
         latest_date = self.parse_date(candle_index=-1)
         if self.parse_date(str(df_candles.iloc[-1].date)) == latest_date:
             self.candles.drop(self.candles.tail(n=1).index, inplace=True)
@@ -668,5 +668,5 @@ class StockClientInteractive(StockClient):
                                                  barSizeSetting=parsed_res, whatToShow='MIDPOINT', useRTH=True)
         while len(candles) == 0:
             self._client.waitOnUpdate()
-        self.candles = ib_insync.util.df(candles)
+        self.candles = ib_insync.util.df(candles).round(2)
         reindex_df(self.candles, ['date'])

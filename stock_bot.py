@@ -248,10 +248,10 @@ class StockBot:
 
         length = RSI_PARAMS
 
-        rsi_results = np.array(rsi(s_close_old, length=length))
+        rsi_results = np.array(rsi(s_close_old, length=length).round(2))
 
         if self.real_time:
-            self.curr_data_entry['RSI'] = float(format(rsi_results[candle_index], '.2f'))
+            self.curr_data_entry['RSI'] = rsi_results[candle_index]
             self.logger.info(f"\t\t[+] RSI condition is [{self.curr_data_entry['RSI'] > 50}]"
                              f" with [{self.curr_data_entry['RSI']} {'>' if self.curr_data_entry['RSI'] > 50 else '<'} 50]")
         else:
@@ -268,10 +268,10 @@ class StockBot:
 
         supertrend_results_df = supertrend(pd.Series(high), pd.Series(low), pd.Series(close),
                                            length=length, multiplier=multiplier)
-        supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME]
+        supertrend_results = supertrend_results_df[SUPERTREND_COL_NAME].round(2)
 
         if self.real_time:
-            self.curr_data_entry['SUPERTREND'] = float(format(supertrend_results[candle_index], '.2f'))
+            self.curr_data_entry['SUPERTREND'] = supertrend_results[candle_index]
             self.logger.info(f"\t\t[+] SUPERTREND condition is [{self.curr_data_entry['SUPERTREND'] < close[candle_index]}]"
                              f" with [{self.curr_data_entry['SUPERTREND']} (SUPERTREND) "
                              f"{'>' if self.curr_data_entry['SUPERTREND'] > close[candle_index] else '<'}"
@@ -288,12 +288,12 @@ class StockBot:
 
         fast, slow, signal = MACD_PARAMS
         macd_close = macd(close=pd.Series(close_prices), fast=fast, slow=slow, signal=signal)
-        macd_data = np.array(macd_close.iloc[:, MACD_INDEX])
-        signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX])
+        macd_data = np.array(macd_close.iloc[:, MACD_INDEX].round(2))
+        signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX].round(2))
 
         if self.real_time:
-            self.curr_data_entry['MACD'] = float(format(macd_data[candle_index], '.2f'))
-            self.curr_data_entry['MACD_SIGNAL'] = float(format(signal_data[candle_index], '.2f'))
+            self.curr_data_entry['MACD'] = macd_data[candle_index]
+            self.curr_data_entry['MACD_SIGNAL'] = signal_data[candle_index]
             self.logger.info(
                 f"\t\t[+] First condition [{self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL']}]"
                 f" with [{self.curr_data_entry['MACD']} (MACD) "
@@ -313,7 +313,7 @@ class StockBot:
         return indices_as_nd
 
     def get_ema(self, client_index: int, length=EMA_LENGTH):
-        ema_data = ema(self.clients[client_index].get_closing_price(), length)
+        ema_data = ema(self.clients[client_index].get_closing_price(), length).round(2)
         return ema_data
 
     def get_vwap(self, client_index: int):
