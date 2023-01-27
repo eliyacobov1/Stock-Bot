@@ -9,12 +9,17 @@ from typing import List, Union, Optional, Callable
 from abc import ABC, abstractmethod
 import pandas as pd
 
-from consts import TimeRes, TradeTypes, SellStatus, DEBUG
-from utils import convert_timestamp_format, get_take_profit, send_email_all, send_email_ele, reindex_df
+from consts import TimeRes, TradeTypes, SellStatus, DEBUG, TimeZones
+from utils import (convert_timestamp_format,
+                   get_take_profit,
+                   send_email_all,
+                   send_email_ele,
+                   reindex_df,
+                   is_dst_difference)
 
 
 class StockClient(ABC):
-    __slots__: List[str] = ['name', 'candles', '_client', '_res']
+    __slots__: List[str] = ['name', 'candles', '_client', '_res', '_timezone']
 
     @property
     def client(self):
@@ -71,7 +76,7 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
-    def parse_date(self, date: str = None, candle_index: int = None) -> datetime.time:
+    def parse_time(self, date: str = None, candle_index: int = None) -> datetime.time:
         pass
 
     @abstractmethod
@@ -85,18 +90,26 @@ class StockClient(ABC):
         pass
 
     def is_in_first_n_candles(self, candle_index: int, n: int = 3) -> bool:
-        candle_date = self.parse_date(candle_index=candle_index)
+        candle_date = self.parse_time(candle_index=candle_index)
+        if self._timezone == TimeZones.ISRAEL and is_dst_difference(self.get_candle_date(candle_index)):
+            candle_date = datetime.time(hour=candle_date.hour+1,
+                                        minute=candle_date.minute,
+                                        second=candle_date.second)
         return candle_date < self._n_first_candles(n=n)
 
     def is_in_last_n_candles(self, candle_index: int, n: int = 3) -> bool:
-        candle_date = self.parse_date(candle_index=candle_index)
+        candle_date = self.parse_time(candle_index=candle_index)
+        if self._timezone == TimeZones.ISRAEL and is_dst_difference(self.get_candle_date(candle_index)):
+            candle_date = datetime.time(hour=candle_date.hour+1,
+                                        minute=candle_date.minute,
+                                        second=candle_date.second)
         return candle_date >= self._n_last_candles(n=n)
 
     def is_close_date(self, date_str: str = None, candle_index: int = None):
         if date_str is None:
-            date = self.parse_date(candle_index=candle_index)
+            date = self.parse_time(candle_index=candle_index)
         else:
-            date = self.parse_date(date=date_str)
+            date = self.parse_time(date=date_str)
         if self._res == TimeRes.MINUTE_1:
             return date.second == 0
         if self._res == TimeRes.MINUTE_5:
@@ -180,6 +193,7 @@ class StockClientFinhub(StockClient):
 class StockClientYfinance(StockClient):
     def __init__(self, name: str):
         super(StockClient, self).__init__()
+        self._timezone = TimeZones.AMERICA
         self.name = name
         self._client = yf.Ticker(name)
         self._res = None
@@ -246,7 +260,7 @@ class StockClientYfinance(StockClient):
         elif res == TimeRes.MINUTE_15:
             return '15m'
 
-    def parse_date(self, date: str = None, candle_index: int = None) -> datetime.time:
+    def parse_time(self, date: str = None, candle_index: int = None) -> datetime.time:
         if date is None:
             date_str = str(self.candles.iloc[candle_index].name).split("-")[-2].split()[-1].split(":")
         else:
@@ -272,15 +286,15 @@ class StockClientYfinance(StockClient):
 
     def add_candle(self) -> True:
         candles = self._client.history(period=self.res_to_period(self._res), interval=self.res_to_str(self._res))
-        latest_date = self.parse_date(candle_index=-1)
-        if self.parse_date(str(candles.iloc[-1].name)) <= latest_date:
+        latest_date = self.parse_time(candle_index=-1)
+        if self.parse_time(str(candles.iloc[-1].name)) <= latest_date:
             return False
         df_rows = [candles.iloc[-1]]
         if not self.is_close_date(candle_index=len(self.candles) - 1):
             self.candles.drop(self.candles.tail(n=1).index, inplace=True)
         for i in range(len(candles) - 2, -1, -1):
             row_date = str(self.candles.iloc[i].name)
-            if self.is_close_date(date_str=row_date) and self.parse_date(row_date) > latest_date:
+            if self.is_close_date(date_str=row_date) and self.parse_time(row_date) > latest_date:
                 df_rows = [candles.iloc[i]] + df_rows
         for row in df_rows:
             if self.is_close_date(date_str=str(row.name)):
@@ -307,6 +321,8 @@ class StockClientYfinance(StockClient):
 class StockClientInteractive(StockClient):
     def __init__(self, name: str, demo=True, client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None):
         super(StockClient, self).__init__()
+        
+        self._timezone = TimeZones.ISRAEL
 
         # Define the log file name and the log formatting, including the date format
         self.log_file = 'log.txt'
@@ -384,12 +400,18 @@ class StockClientInteractive(StockClient):
 
     def is_day_last_transaction(self, i: int) -> bool:
         last_transaction_time: str = str()
+        candle_date = self.get_candle_date(i)
+        
+        # if dst only in israel, tading ends at 22:00 e=instead of 23:00
+        dst_diff: bool = is_dst_difference(candle_date)
+        hour = '21' if dst_diff else '22'
+        
         if self._res == TimeRes.MINUTE_5:
-            last_transaction_time = "22:55:"
+            last_transaction_time = f"{hour}:55:"
         elif self._res == TimeRes.MINUTE_15:
-            last_transaction_time = "22:45:"
+            last_transaction_time = f"{hour}:45:"
         elif self._res == TimeRes.MINUTE_1:
-            last_transaction_time = "22:59:"
+            last_transaction_time = f"{hour}:59:"
         return last_transaction_time in self.get_candle_date(i)
 
     def get_candle_date(self, i: int) -> str:
@@ -609,7 +631,7 @@ class StockClientInteractive(StockClient):
         elif res == TimeRes.MINUTE_15:
             return '900 S'
 
-    def parse_date(self, date: str = None, candle_index: int = None) -> datetime.time:
+    def parse_time(self, date: str = None, candle_index: int = None) -> datetime.time:
         if date is None:
             if 'date' not in self.candles:
                 date = str(self.candles.iloc[candle_index].name)
@@ -646,10 +668,10 @@ class StockClientInteractive(StockClient):
             self.logger.info("waiting for data")
             self._client.sleep(2)
         df_candles = ib_insync.util.df(candles).round(2)
-        latest_date = self.parse_date(candle_index=-1)
-        if self.parse_date(str(df_candles.iloc[-1].date)) == latest_date:
+        latest_date = self.parse_time(candle_index=-1)
+        if self.parse_time(str(df_candles.iloc[-1].date)) == latest_date:
             self.candles.drop(self.candles.tail(n=1).index, inplace=True)
-        elif len(df_candles) > 1 and self.parse_date(str(df_candles.iloc[-2].date)) == latest_date:
+        elif len(df_candles) > 1 and self.parse_time(str(df_candles.iloc[-2].date)) == latest_date:
             self.candles.drop(self.candles.tail(n=1).index, inplace=True)
             self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
         elif len(df_candles) > 1:

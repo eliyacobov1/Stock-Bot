@@ -109,6 +109,11 @@ class SellStatus(Enum):
     NEITHER = 2
 
 
+class TimeZones(Enum):
+    ISRAEL = 0
+    AMERICA = 1
+
+
 class TradeTypes(Enum):
     BUY = 0
     SELL = 1

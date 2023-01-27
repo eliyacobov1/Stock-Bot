@@ -8,6 +8,9 @@ import ssl
 import smtplib
 
 import pandas
+import pytz
+
+from dateutil import parser
 
 from secret import EMAIL_PASSWORD
 from consts import TAKE_PROFIT_MULTIPLIER, STOP_LOSS_PERCENTAGE_MARGIN
@@ -87,3 +90,17 @@ def get_take_profit(curr_price, stop_loss, tp_multiplier=TAKE_PROFIT_MULTIPLIER)
 def reindex_df(df: pandas.DataFrame, index: List[str]):
     df.set_index(index, inplace=True)
     df.sort_index(inplace=True)
+
+
+def is_dst_difference(date_str: str):
+    """
+    fucntion to check if a given date is in DST period of only
+    of the timrezones- Israel/America
+    """
+    date = parser.parse(date_str)
+    israel_tz = pytz.timezone('Asia/Jerusalem')
+    america_tz = pytz.timezone('America/New_York')
+    if israel_tz.dst(date) != america_tz.dst(date):
+        return True
+    else:
+        return False
