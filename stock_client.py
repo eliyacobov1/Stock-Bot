@@ -141,55 +141,6 @@ class StockClient(ABC):
         pass
 
 
-class StockClientFinhub(StockClient):
-    def __init__(self, name: str):
-        from secret import FINHUB_API_KEY  # you need to create secret.py and put your finhub api key there
-        import finnhub
-
-        super(StockClient, self).__init__()
-        self.name = name
-        self._client = finnhub.Client(api_key=FINHUB_API_KEY)
-        self.candles = None
-
-    def get_closing_price(self) -> pd.Series:
-        return self.candles['c']
-
-    def get_opening_price(self) -> pd.Series:
-        return self.candles['o']
-
-    def get_high_prices(self) -> pd.Series:
-        return self.candles['h']
-
-    def get_num_candles(self) -> int:
-        return self.candles.shape[0]
-
-    def get_candle_date(self, i: int) -> str:
-        pass
-
-    def get_volume(self) -> pd.Series:
-        pass
-
-    def get_low_prices(self) -> pd.Series:
-        return self.candles['l']
-
-    def is_day_last_transaction(self, i: int) -> bool:
-        pass
-
-    @staticmethod
-    def res_to_str(res: TimeRes) -> str:
-        if res == TimeRes.MINUTE_5:
-            return '5'
-        elif res == TimeRes.MINUTE_15:
-            return '15'
-
-    def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None) -> None:
-        parsed_res = self.res_to_str(res)
-        if period:
-            pass
-        else:
-            self.candles = self._client.stock_candles(symbol=self.name, resolution=parsed_res, _from=start, to=end)
-
-
 class StockClientYfinance(StockClient):
     def __init__(self, name: str):
         super(StockClient, self).__init__()
