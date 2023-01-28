@@ -143,7 +143,7 @@ class StockClient(ABC):
 
 class StockClientYfinance(StockClient):
     def __init__(self, name: str):
-        super(StockClient, self).__init__()
+        super().__init__()
         self._timezone = TimeZones.AMERICA
         self.name = name
         self._client = yf.Ticker(name)
@@ -271,7 +271,7 @@ class StockClientYfinance(StockClient):
 
 class StockClientInteractive(StockClient):
     def __init__(self, name: str, demo=True, client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None):
-        super(StockClient, self).__init__()
+        super().__init__()
         
         self._timezone = TimeZones.ISRAEL
 
