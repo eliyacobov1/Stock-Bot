@@ -5,7 +5,7 @@ from functools import lru_cache
 
 import yfinance as yf
 import ib_insync
-from typing import List, Union, Optional, Callable
+from typing import Dict, List, Union, Optional, Callable
 from abc import ABC, abstractmethod
 import pandas as pd
 
@@ -21,6 +21,10 @@ from utils import (convert_timestamp_format,
 class StockClient(ABC):
     __slots__: List[str] = ['name', 'candles', '_client', '_res', '_timezone']
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.candles: Dict[TimeRes, pd.DataFrame] = {}
+
     @property
     def client(self):
         return self._client
@@ -35,31 +39,31 @@ class StockClient(ABC):
         pass
 
     @abstractmethod
-    def get_closing_price(self) -> pd.Series:
+    def get_closing_price(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
         pass
 
     @abstractmethod
-    def get_volume(self) -> pd.Series:
+    def get_volume(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
         pass
 
     @abstractmethod
-    def get_opening_price(self) -> pd.Series:
+    def get_opening_price(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
         pass
 
     @abstractmethod
-    def get_high_prices(self) -> pd.Series:
+    def get_high_prices(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
         pass
 
     @abstractmethod
-    def get_candle_date(self, i: int) -> str:
+    def get_candle_date(self, i: int, res: TimeRes = TimeRes.MINUTE_5) -> str:
         pass
 
     @abstractmethod
-    def get_candle_dates(self) -> pd.Series:
+    def get_candle_dates(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
         pass
 
     @abstractmethod
-    def get_low_prices(self) -> pd.Series:
+    def get_low_prices(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
         pass
 
     @abstractmethod
@@ -88,6 +92,10 @@ class StockClient(ABC):
     @lru_cache(maxsize=None)
     def _n_first_candles(self, n: int = 3) -> datetime.time:
         pass
+    
+    @property
+    def time_res_list(self):
+        return List(self.candles.keys())
 
     def is_in_first_n_candles(self, candle_index: int, n: int = 3) -> bool:
         candle_date = self.parse_time(candle_index=candle_index)
@@ -117,7 +125,7 @@ class StockClient(ABC):
         elif self._res == TimeRes.MINUTE_15:
             return date.minute % 15 == 0 and date.second == 0
 
-    def add_candle(self) -> True:
+    def add_candle(self, res: TimeRes = TimeRes.MINUTE_5) -> True:
         pass
 
     @abstractmethod
@@ -149,20 +157,20 @@ class StockClientYfinance(StockClient):
         self._client = yf.Ticker(name)
         self._res = None
 
-    def get_closing_price(self) -> pd.Series:
-        return self.candles['Close']
+    def get_closing_price(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['Close']
 
-    def get_opening_price(self) -> pd.Series:
-        return self.candles['Open']
+    def get_opening_price(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['Open']
 
-    def get_high_prices(self) -> pd.Series:
-        return self.candles['High']
+    def get_high_prices(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['High']
 
-    def get_low_prices(self) -> pd.Series:
-        return self.candles['Low']
+    def get_low_prices(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['Low']
 
-    def get_volume(self) -> pd.Series:
-        return self.candles['Volume']
+    def get_volume(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['Volume']
 
     def is_day_last_transaction(self, i: int) -> bool:
         last_transaction_time: str = str()
@@ -174,11 +182,11 @@ class StockClientYfinance(StockClient):
             last_transaction_time = "15:59"
         return last_transaction_time in self.get_candle_date(i)
 
-    def get_candle_date(self, i: int) -> str:
-        return str(self.candles.iloc[i].name)
+    def get_candle_date(self, i: int, res: TimeRes = TimeRes.MINUTE_5) -> str:
+        return str(self.candles[res].iloc[i].name)
 
-    def get_candle_dates(self) -> pd.Series:
-        return self.candles.index.to_series()
+    def get_candle_dates(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res].index.to_series()
 
     @staticmethod
     def res_to_str(res: TimeRes) -> str:
@@ -189,18 +197,18 @@ class StockClientYfinance(StockClient):
         elif res == TimeRes.MINUTE_15:
             return '15m'
 
-    def get_num_candles(self) -> int:
-        return self.candles.shape[0]
+    def get_num_candles(self, res: TimeRes = TimeRes.MINUTE_5) -> int:
+        return self.candles[res].shape[0]
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
-        self._res = res
+        self._res = min(self._res, res) if self._res is not None else res
         parsed_res = self.res_to_str(res)
         if start is not None:
             formatted_start = convert_timestamp_format(start)
             formatted_end = convert_timestamp_format(end)
-            self.candles = self._client.history(start=formatted_start, end=formatted_end, interval=parsed_res)
+            self.candles[res] = self._client.history(start=formatted_start, end=formatted_end, interval=parsed_res)
         else:
-            self.candles = self._client.history(period=period, interval=parsed_res)
+            self.candles[res] = self._client.history(period=period, interval=parsed_res)
 
     @staticmethod
     def res_to_period(res: TimeRes) -> str:
@@ -235,23 +243,24 @@ class StockClientYfinance(StockClient):
         start_time = datetime.time(hour=9+h+(30+m)//60, minute=(30+m) % 60, second=0)
         return start_time
 
-    def add_candle(self) -> True:
-        candles = self._client.history(period=self.res_to_period(self._res), interval=self.res_to_str(self._res))
+    def add_candle(self, res: TimeRes = TimeRes.MINUTE_5) -> None:
+        res_candles = self.candles[res]
+        candles_to_add = self._client.history(period=self.res_to_period(self._res), interval=self.res_to_str(self._res))
         latest_date = self.parse_time(candle_index=-1)
-        if self.parse_time(str(candles.iloc[-1].name)) <= latest_date:
+        if self.parse_time(str(candles_to_add.iloc[-1].name)) <= latest_date:
             return False
-        df_rows = [candles.iloc[-1]]
-        if not self.is_close_date(candle_index=len(self.candles) - 1):
-            self.candles.drop(self.candles.tail(n=1).index, inplace=True)
-        for i in range(len(candles) - 2, -1, -1):
-            row_date = str(self.candles.iloc[i].name)
+        df_rows = [candles_to_add.iloc[-1]]
+        if not self.is_close_date(candle_index=len(res_candles) - 1):
+            res_candles.drop(res_candles.tail(n=1).index, inplace=True)
+        for i in range(len(candles_to_add) - 2, -1, -1):
+            row_date = str(res_candles.iloc[i].name)
             if self.is_close_date(date_str=row_date) and self.parse_time(row_date) > latest_date:
-                df_rows = [candles.iloc[i]] + df_rows
+                df_rows = [candles_to_add.iloc[i]] + df_rows
         for row in df_rows:
             if self.is_close_date(date_str=str(row.name)):
-                self.candles.drop(self.candles.head(n=1).index, inplace=True)
-            self.candles = self.candles.append(row)
-        return True
+                res_candles.drop(res_candles.head(n=1).index, inplace=True)
+            res_candles = res_candles.append(row)
+        self.candles[res] = res_candles
 
     def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
         pass
@@ -334,20 +343,20 @@ class StockClientInteractive(StockClient):
         ib = ib_insync.IB()
         return ib
 
-    def get_closing_price(self) -> pd.Series:
-        return self.candles['close']
+    def get_closing_price(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['close']
 
-    def get_opening_price(self) -> pd.Series:
-        return self.candles['open']
+    def get_opening_price(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['open']
 
-    def get_high_prices(self) -> pd.Series:
-        return self.candles['high']
+    def get_high_prices(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['high']
 
-    def get_low_prices(self) -> pd.Series:
-        return self.candles['low']
+    def get_low_prices(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['low']
 
-    def get_volume(self) -> pd.Series:
-        return self.candles['volume']
+    def get_volume(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res]['volume']
 
     def is_day_last_transaction(self, i: int) -> bool:
         last_transaction_time: str = str()
@@ -365,11 +374,11 @@ class StockClientInteractive(StockClient):
             last_transaction_time = f"{hour}:59:"
         return last_transaction_time in self.get_candle_date(i)
 
-    def get_candle_date(self, i: int) -> str:
-        return str(self.candles.index[i])
+    def get_candle_date(self, i: int, res: TimeRes = TimeRes.MINUTE_5) -> str:
+        return str(self.candles[res].index[i])
 
-    def get_candle_dates(self) -> pd.Series:
-        return self.candles.index
+    def get_candle_dates(self, res: TimeRes = TimeRes.MINUTE_5) -> pd.Series:
+        return self.candles[res].index
 
     def buy_order(self, quantity: float, stop_loss: float, price: float = None, market_order=True):
         self.logger.info("Buy order called")
@@ -581,13 +590,15 @@ class StockClientInteractive(StockClient):
             return '300 S'
         elif res == TimeRes.MINUTE_15:
             return '900 S'
+        elif res == TimeRes.HOUR_1:
+            return '3600 S'
 
-    def parse_time(self, date: str = None, candle_index: int = None) -> datetime.time:
+    def parse_time(self, date: str = None, candle_index: int = None, res: TimeRes = TimeRes.MINUTE_5) -> datetime.time:
         if date is None:
-            if 'date' not in self.candles:
-                date = str(self.candles.iloc[candle_index].name)
+            if 'date' not in self.candles[res]:
+                date = str(self.candles[res].iloc[candle_index].name)
             else:
-                date = str(self.candles.iloc[candle_index]['date'])
+                date = str(self.candles[res].iloc[candle_index]['date'])
         date_str = date.split("-")[2].split()[-1].split(":")
         h, m, s = date_str
         return datetime.time(hour=int(h), minute=int(m), second=int(s))
@@ -608,32 +619,33 @@ class StockClientInteractive(StockClient):
         start_time = datetime.time(hour=16 + h + (30 + m) // 60, minute=(30 + m) % 60, second=0)
         return start_time
 
-    def get_num_candles(self) -> int:
-        return self.candles.shape[0]
+    def get_num_candles(self, res: TimeRes = TimeRes.MINUTE_5) -> int:
+        return self.candles[res].shape[0]
 
-    def add_candle(self) -> True:
-        self.candles.reset_index(inplace=True)
-        candles = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(self._res),
-                                                 barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=True)
-        while len(candles) == 0:
+    def add_candle(self, res: TimeRes = TimeRes.MINUTE_5) -> None:
+        res_candles = self.candles[res]
+        res_candles.reset_index(inplace=True)
+        candles_to_add = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(res),
+                                                 barSizeSetting=self.res_to_str(res), whatToShow='MIDPOINT', useRTH=True)
+        while len(candles_to_add) == 0:
             self.logger.info("waiting for data")
             self._client.sleep(2)
-        df_candles = ib_insync.util.df(candles).round(2)
-        latest_date = self.parse_time(candle_index=-1)
-        if self.parse_time(str(df_candles.iloc[-1].date)) == latest_date:
-            self.candles.drop(self.candles.tail(n=1).index, inplace=True)
-        elif len(df_candles) > 1 and self.parse_time(str(df_candles.iloc[-2].date)) == latest_date:
-            self.candles.drop(self.candles.tail(n=1).index, inplace=True)
-            self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
-        elif len(df_candles) > 1:
-            self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
-        self.candles = self.candles.append(df_candles.iloc[-1], ignore_index=True)
-        reindex_df(self.candles, ['date'])
-        return True
+        df_candles_to_add = ib_insync.util.df(candles_to_add).round(2)
+        latest_date = self.parse_time(candle_index=-1, res=res)
+        if self.parse_time(str(df_candles_to_add.iloc[-1].date)) == latest_date:
+            res_candles.drop(res_candles.tail(n=1).index, inplace=True)
+        elif len(df_candles_to_add) > 1 and self.parse_time(str(df_candles_to_add.iloc[-2].date)) == latest_date:
+            res_candles.drop(res_candles.tail(n=1).index, inplace=True)
+            res_candles = res_candles.append(df_candles_to_add.iloc[-2], ignore_index=True)
+        elif len(df_candles_to_add) > 1:
+            res_candles = res_candles.append(df_candles_to_add.iloc[-2], ignore_index=True)
+        res_candles = res_candles.append(df_candles_to_add.iloc[-1], ignore_index=True)
+        reindex_df(res_candles, ['date'])
+        self.candles[res] = res_candles  # TODO check if this is needed
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
         self.logger.info(f"fetching candle data with resoultion: {res}, period: {period}")
-        self._res = res
+        self._res = min(self._res, res) if self._res is not None else res
         parsed_res = self.res_to_str(res)
 
         formatted_end = convert_timestamp_format(end) if end is not None else ''
@@ -641,5 +653,5 @@ class StockClientInteractive(StockClient):
                                                  barSizeSetting=parsed_res, whatToShow='MIDPOINT', useRTH=True)
         while len(candles) == 0:
             self._client.waitOnUpdate()
-        self.candles = ib_insync.util.df(candles).round(2)
-        reindex_df(self.candles, ['date'])
+        self.candles[res] = ib_insync.util.df(candles).round(2)
+        reindex_df(self.candles[res], ['date'])

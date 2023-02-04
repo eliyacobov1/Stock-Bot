@@ -89,6 +89,7 @@ class TimeRes(Enum):
     MINUTE_1 = 0
     MINUTE_5 = 1
     MINUTE_15 = 2
+    HOUR_1 = 3
 
 
 def int_to_res(val: int) -> TimeRes:
@@ -96,11 +97,14 @@ def int_to_res(val: int) -> TimeRes:
         return TimeRes.MINUTE_1
     elif val == 5:
         return TimeRes.MINUTE_5
-    else:
+    elif val == 15:
         return TimeRes.MINUTE_15
+    elif val == 60:
+        return TimeRes.HOUR_1
 
 
-DEFAULT_RES = int_to_res(DEFAULT_CANDLE_SIZE)
+DEFAULT_RES = [int_to_res(DEFAULT_CANDLE_SIZE)]
+DEFAULT_THRESH = 1
 
 
 class SellStatus(Enum):

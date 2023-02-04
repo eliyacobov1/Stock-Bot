@@ -21,7 +21,8 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
                     REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG,
-                    TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD)
+                    TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD,
+                    TimeRes)
 from stock_client import StockClient
 
 API_KEY = "c76vsr2ad3iaenbslifg"
@@ -52,7 +53,8 @@ class StockBot:
         self.vix_client: StockClient = vix_client
         self.gain_avg = None
         self.loss_avg = None
-        self.resolution = DEFAULT_RES
+        self.resolution: List[TimeRes] = DEFAULT_RES
+        self.multi_res = False
         self.start_time = start
         self.end_time = end
         self.period = period
@@ -81,6 +83,9 @@ class StockBot:
 
         self.data_changed = [True for i in range(len(self.clients))]  # indicates whether new candle data was fetched or not
         self.criteria_indices = [None for i in range(len(self.clients))]
+        
+        self.weights = Dict[TimeRes, Dict[CRITERIA, float]]
+        self.thresh = ...
 
         self.set_candle_data()
 
@@ -197,20 +202,20 @@ class StockBot:
         except KeyError:  # in case candle data is not found
             return
 
-    def get_close_price(self, client_index: int, index=-1):
-        closing_price = self.clients[client_index].get_closing_price()
+    def get_close_price(self, client_index: int, index=-1, res: TimeRes = TimeRes.MINUTE_5):
+        closing_price = self.clients[client_index].get_closing_price(res=res)
         return closing_price.iloc[index]
 
-    def get_open_price(self, client_index: int, index=-1):
-        open_price = self.clients[client_index].get_opening_price()
+    def get_open_price(self, client_index: int, index=-1, res: TimeRes = TimeRes.MINUTE_5):
+        open_price = self.clients[client_index].get_opening_price(res=res)
         return open_price.iloc[index]
 
-    def get_low_price(self, client_index: int, index=-1):
-        low_price = self.clients[client_index].get_low_prices()
+    def get_low_price(self, client_index: int, index=-1, res: TimeRes = TimeRes.MINUTE_5):
+        low_price = self.clients[client_index].get_low_prices(res=res)
         return low_price.iloc[index]
 
-    def get_high_price(self, client_index: int, index=-1):
-        high_price = self.clients[client_index].get_high_prices()
+    def get_high_price(self, client_index: int, index=-1, res: TimeRes = TimeRes.MINUTE_5):
+        high_price = self.clients[client_index].get_high_prices(res=res)
         return high_price.iloc[index]
 
     def set_tp_multiplier(self, val: float):
@@ -225,10 +230,11 @@ class StockBot:
     # @lru_cache(maxsize=1)
     def set_candle_data(self):
         if self.period:
-            for c in self.clients:
-                c.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
-            if self.vix_client is not None:
-                self.vix_client.set_candle_data(res=self.resolution, start=self.start_time, end=self.end_time, period=period)
+            for res in self.resolution:
+                for c in self.clients:
+                    c.set_candle_data(res=res, start=self.start_time, end=self.end_time, period=period)
+                if self.vix_client is not None:
+                    self.vix_client.set_candle_data(res=res, start=self.start_time, end=self.end_time, period=period)
         for i in range(len(self.data_changed)):
             self.data_changed[i] = True
 
@@ -243,8 +249,8 @@ class StockBot:
                 c = CRITERIA.factory(name)
                 self.criteria.append(c)
 
-    def get_rsi_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
-        s_close_old = pd.Series(self.clients[client_index].get_closing_price())
+    def get_rsi_criterion(self, client_index: int, candle_index: int, res: TimeRes = TimeRes.MINUTE_5) -> np.ndarray:
+        s_close_old = pd.Series(self.clients[client_index].get_closing_price(res))
 
         length = RSI_PARAMS
 
@@ -259,10 +265,10 @@ class StockBot:
 
         return np.where(rsi_results > 50)
 
-    def get_supertrend_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
-        high = self.clients[client_index].get_high_prices()
-        low = self.clients[client_index].get_low_prices()
-        close = self.clients[client_index].get_closing_price()
+    def get_supertrend_criterion(self, client_index: int, candle_index: int, res: TimeRes = TimeRes.MINUTE_5) -> np.ndarray:
+        high = self.clients[client_index].get_high_prices(res)
+        low = self.clients[client_index].get_low_prices(res)
+        close = self.clients[client_index].get_closing_price(res)
 
         length, multiplier = SUPERTREND_PARAMS
 
@@ -283,8 +289,8 @@ class StockBot:
 
         return np.array(indices)
 
-    def get_macd_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
-        close_prices = self.clients[client_index].get_closing_price()
+    def get_macd_criterion(self, client_index: int, candle_index: int, res: TimeRes = TimeRes.MINUTE_5) -> np.ndarray:
+        close_prices = self.clients[client_index].get_closing_price(res)
 
         fast, slow, signal = MACD_PARAMS
         macd_close = macd(close=pd.Series(close_prices), fast=fast, slow=slow, signal=signal)
@@ -312,23 +318,23 @@ class StockBot:
 
         return indices_as_nd
 
-    def get_ema(self, client_index: int, length=EMA_LENGTH):
-        ema_data = ema(self.clients[client_index].get_closing_price(), length).round(2)
+    def get_ema(self, client_index: int, length=EMA_LENGTH, res: TimeRes = TimeRes.MINUTE_5):
+        ema_data = ema(self.clients[client_index].get_closing_price(res), length).round(2)
         return ema_data
 
-    def get_vwap(self, client_index: int):
-        high = self.clients[client_index].get_high_prices()
-        low = self.clients[client_index].get_low_prices()
-        close = self.clients[client_index].get_closing_price()
-        volume = self.clients[client_index].get_volume()
+    def get_vwap(self, client_index: int, res: TimeRes = TimeRes.MINUTE_5):
+        high = self.clients[client_index].get_high_prices(res)
+        low = self.clients[client_index].get_low_prices(res)
+        close = self.clients[client_index].get_closing_price(res)
+        volume = self.clients[client_index].get_volume(res)
         vwap_data = vwap(high, low, close, volume)
         return vwap_data
 
-    def get_inside_bar_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
-        close_prices = self.clients[client_index].get_closing_price()
-        open_prices = self.clients[client_index].get_opening_price()
-        high_prices = self.clients[client_index].get_high_prices()
-        low_prices = self.clients[client_index].get_low_prices()
+    def get_inside_bar_criterion(self, client_index: int, candle_index: int, res: TimeRes = TimeRes.MINUTE_5) -> np.ndarray:
+        close_prices = self.clients[client_index].get_closing_price(res)
+        open_prices = self.clients[client_index].get_opening_price(res)
+        high_prices = self.clients[client_index].get_high_prices(res)
+        low_prices = self.clients[client_index].get_low_prices(res)
         if self.real_time or self.enable_history_log:
             self.logger.info("calculating EMA")
         ema = self.get_ema(client_index)
@@ -346,10 +352,10 @@ class StockBot:
 
         return indices
 
-    def get_reversal_bar_criterion(self, client_index: int, candle_index: int) -> np.ndarray:
-        close_prices = self.clients[client_index].get_closing_price()
-        high_prices = self.clients[client_index].get_high_prices()
-        low_prices = self.clients[client_index].get_low_prices()
+    def get_reversal_bar_criterion(self, client_index: int, candle_index: int, res: TimeRes = TimeRes.MINUTE_5) -> np.ndarray:
+        close_prices = self.clients[client_index].get_closing_price(res)
+        high_prices = self.clients[client_index].get_high_prices(res)
+        low_prices = self.clients[client_index].get_low_prices(res)
         if self.real_time or self.enable_history_log:
             self.logger.info("calculating EMA")
         ema = self.get_ema(client_index)
@@ -364,32 +370,41 @@ class StockBot:
 
         return indices
 
-    def get_num_candles(self, client_index: int = 0):
+    def get_num_candles(self, client_index: int = 0, res: TimeRes = TimeRes.MINUTE_5):
         """
         returns the number of candles that are currently observed
         """
-        return len(self.clients[client_index].get_closing_price())
+        return len(self.clients[client_index].get_closing_price(res))
 
     def _is_criteria(self, client_index: int, candle_index: int, cond_operation='&') -> np.ndarray:
         """
         :param cond_operation: '&' or '|'. Indicates the operation that will be performed on the given criteria.
         """
         indices = np.arange(self.get_num_candles(client_index)) if cond_operation == '&' else np.empty(0)
-        for c in self.criteria:
-            if self.real_time or self.enable_history_log:
-                self.logger.info("Calculating criteria: {}".format(c))
-            callback: Callable[[int, int], np.ndarray] = self.criteria_func_data_mapping[c]
-            criterion_indices = callback(client_index, candle_index)
-            if cond_operation == '&':
-                indices = filter_by_array(indices, criterion_indices)
-            else:
-                criteria_union = np.concatenate((indices, criterion_indices))
-                indices = np.unique(criteria_union)
+        if ...:
+            weighted_indices = np.arange(0, self.get_num_candles(client_index))
+        for res in sorted(self.resolution):
+            for c in self.criteria:
+                if self.real_time or self.enable_history_log:
+                    self.logger.info("Calculating criteria: {} for time resolution {}".format(c, res))
+                callback: Callable[[int, int, TimeRes], np.ndarray] = self.criteria_func_data_mapping[c]
+                criterion_indices = callback(client_index, candle_index, res)
+                if ...:
+                    weight = self.weights[res][c]
+                    weighted_indices[criterion_indices] += weight
+                elif cond_operation == '&':
+                    indices = filter_by_array(indices, criterion_indices)
+                else:
+                    criteria_union = np.concatenate((indices, criterion_indices))
+                    indices = np.unique(criteria_union)
 
         self.criteria_indices[client_index] = indices
         self.data_changed[client_index] = False  # criteria are now updated according to the latest change
 
-        return indices
+        if ...:
+            return np.argwhere(weighted_indices-self.thresh)
+        else:
+            return indices
 
     def is_buy(self, client_index: int, index: int = None) -> bool:
         if self.real_time:
@@ -751,11 +766,11 @@ class StockBot:
             self.log_summary()
         return self.capital
 
-    def add_candle(self, client_index: int):
-        lastest_time = self.clients[client_index].get_candle_date(-1)
-        self.clients[client_index].add_candle()
-        if self.clients[client_index].get_candle_date(-1) != lastest_time:
-            self.data_changed[client_index] = True
+    def add_candle(self, client_index: int, time_res: TimeRes = TimeRes.MINUTE_5):
+        lastest_time = self.clients[client_index].get_candle_date(-1, time_res)
+        self.clients[client_index].add_candle(time_res)
+        if self.clients[client_index].get_candle_date(-1, time_res) != lastest_time:
+            self.data_changed[client_index] = True  # TODO make changes to support this
             self.logger.info(f"New candle added!")
 
     async def main_loop_real_time(self) -> float:
