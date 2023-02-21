@@ -21,10 +21,11 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
                     REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG,
-                    TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD)
+                    TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD,
+                    USE_DL_MODEL, CLASSIFIER_THRESH, MACD_H_INDEX)
 from stock_client import StockClient
-
-API_KEY = "c76vsr2ad3iaenbslifg"
+from dl_utils.data_generator import DataGenerator, RawDataSample
+from dl_utils.fc_classifier import FcClassifier
 
 AMOUNT = 0
 NUM_STOCKS = 1
@@ -47,7 +48,8 @@ class StockBot:
                  use_pyr: bool = DEFAULT_USE_PYRAMID, ru_growth: float = None, monitor_revenue: bool = False, criteria: Optional[List[str]] = None,
                  log_to_file=False, tp_multiplier=TAKE_PROFIT_MULTIPLIER, sl_bound=STOP_LOSS_LOWER_BOUND, run_wins=USE_RUN_WINS,
                  rw_take_profit_multiplier=RUN_WINS_TAKE_PROFIT_MULTIPLIER, rw_percent=RUN_WINS_PERCENT, vix_client=None,
-                 enable_history_log: bool = True, real_time: bool = REAL_TIME):
+                 enable_history_log: bool = True, real_time: bool = REAL_TIME, model: Optional[FcClassifier] = None,
+                 scalar = None, data_generator: Optional[DataGenerator] = None):
         self.clients = stock_clients
         self.vix_client: StockClient = vix_client
         self.gain_avg = None
@@ -154,11 +156,12 @@ class StockBot:
 
         # create dataframes to store runtime analysis candle data and trade data
         index_cols = ['date', 'name']
-        cols = ['high', 'low', 'close', 'ema200']
+        cols = ['high', 'low', 'close', 'ema200', 'ema100', 'ema50', 'ema45', 'ema40', 'ema35',
+                'ema30', 'ema25', 'ema20']
         if self.is_bar_strategy():
-            cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'SUPERTREND']
+            cols += ['RSI', 'MACD', 'MACD_SIGNAL', 'MACDh', 'SUPERTREND']
         if not self.real_time:
-            cols += ['ema9', 'ema48', 'ema100', 'vwap', VIX]
+            cols += ['vwap', VIX]
 
         self.data_collection_df = pd.DataFrame(columns=index_cols+cols)
         # used to store candle data for specific client before concatenation
@@ -171,6 +174,15 @@ class StockBot:
         self.curr_data_entry = {}
 
         self.logger.setLevel(logging.INFO)
+        
+        # these attributes are used for prediction using a DL classification model
+        self.dl_model = model
+        self.dl_scalar = scalar
+        self.dl_data_generator = data_generator
+        self.model_thresh = CLASSIFIER_THRESH
+        self.num_candles_in_trend = 0  # number of candles in a continous trend slope
+        self.percentage_diff = 0
+        self.accumulated_percentage_diff = 0
 
     def _reset_temp_candle_df(self):
         self.temp_client_candle_df = self.temp_client_candle_df.iloc[0:0]
@@ -252,8 +264,9 @@ class StockBot:
 
         if self.real_time:
             self.curr_data_entry['RSI'] = rsi_results[candle_index]
-            self.logger.info(f"\t\t[+] RSI condition is [{self.curr_data_entry['RSI'] > 50}]"
-                             f" with [{self.curr_data_entry['RSI']} {'>' if self.curr_data_entry['RSI'] > 50 else '<'} 50]")
+            if not self.use_dl_model:
+                self.logger.info(f"\t\t[+] RSI condition is [{self.curr_data_entry['RSI'] > 50}]"
+                                f" with [{self.curr_data_entry['RSI']} {'>' if self.curr_data_entry['RSI'] > 50 else '<'} 50]")
         else:
             self.temp_client_candle_df['RSI'] = rsi_results.tolist()
 
@@ -272,10 +285,11 @@ class StockBot:
 
         if self.real_time:
             self.curr_data_entry['SUPERTREND'] = supertrend_results[candle_index]
-            self.logger.info(f"\t\t[+] SUPERTREND condition is [{self.curr_data_entry['SUPERTREND'] < close[candle_index]}]"
-                             f" with [{self.curr_data_entry['SUPERTREND']} (SUPERTREND) "
-                             f"{'>' if self.curr_data_entry['SUPERTREND'] > close[candle_index] else '<'}"
-                             f" {close[candle_index]} (close_price)]")
+            if not self.use_dl_model:
+                self.logger.info(f"\t\t[+] SUPERTREND condition is [{self.curr_data_entry['SUPERTREND'] < close[candle_index]}]"
+                                f" with [{self.curr_data_entry['SUPERTREND']} (SUPERTREND) "
+                                f"{'>' if self.curr_data_entry['SUPERTREND'] > close[candle_index] else '<'}"
+                                f" {close[candle_index]} (close_price)]")
         else:
             self.temp_client_candle_df['SUPERTREND'] = supertrend_results.tolist()
 
@@ -290,22 +304,26 @@ class StockBot:
         macd_close = macd(close=pd.Series(close_prices), fast=fast, slow=slow, signal=signal)
         macd_data = np.array(macd_close.iloc[:, MACD_INDEX].round(2))
         signal_data = np.array(macd_close.iloc[:, MACD_SIGNAL_INDEX].round(2))
+        macd_h_data = np.array(macd_close.iloc[:, MACD_H_INDEX].round(2))
 
         if self.real_time:
             self.curr_data_entry['MACD'] = macd_data[candle_index]
             self.curr_data_entry['MACD_SIGNAL'] = signal_data[candle_index]
-            self.logger.info(
-                f"\t\t[+] First condition [{self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL']}]"
-                f" with [{self.curr_data_entry['MACD']} (MACD) "
-                f"{'>' if self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL'] else '<'}"
-                f" {self.curr_data_entry['MACD_SIGNAL']} (MACD_SIGNAL)]")
-            self.logger.info(
-                f"\t\t[+] Second condition is [{self.curr_data_entry['MACD'] < 0}]"
-                f" with [{self.curr_data_entry['MACD']} (MACD) "
-                f"{'>' if self.curr_data_entry['MACD'] > 0 else '<'} 0]")
+            self.curr_data_entry['MACDh'] = macd_h_data[candle_index]
+            if not self.use_dl_model:
+                self.logger.info(
+                    f"\t\t[+] First condition [{self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL']}]"
+                    f" with [{self.curr_data_entry['MACD']} (MACD) "
+                    f"{'>' if self.curr_data_entry['MACD'] > self.curr_data_entry['MACD_SIGNAL'] else '<'}"
+                    f" {self.curr_data_entry['MACD_SIGNAL']} (MACD_SIGNAL)]")
+                self.logger.info(
+                    f"\t\t[+] Second condition is [{self.curr_data_entry['MACD'] < 0}]"
+                    f" with [{self.curr_data_entry['MACD']} (MACD) "
+                    f"{'>' if self.curr_data_entry['MACD'] > 0 else '<'} 0]")
         else:
             self.temp_client_candle_df['MACD'] = macd_data.tolist()
             self.temp_client_candle_df['MACD_SIGNAL'] = signal_data.tolist()
+            self.temp_client_candle_df['MACDh'] = macd_h_data.tolist()
 
         indices = np.where((macd_data > signal_data) & (macd_data < 0))
         indices_as_nd = np.array(indices)
@@ -410,22 +428,41 @@ class StockBot:
             if self.real_time:
                 self.logger.info("Blocking buy operation: end of day -> return [False]")
             return False
-        op = '|' if self.is_bar_strategy() else '&'
 
+        op = '|' if self.is_bar_strategy() else '&'
         if self.data_changed[client_index]:
             approved_indices = self._is_criteria(cond_operation=op, client_index=client_index, candle_index=index)
             # data analysis of stock candles
             if self.real_time:
                 self.extract_single_candle_data(client_index, index)
                 self.logger.info(f"Current candle analysis data: {self.curr_data_entry}")
-                self.flush_candle_data_entry()
             else:  # in case we run in history mode, we can fetch the data for all candles at once
                 self.extract_candle_data_table(client_index)
         else:
             approved_indices = self.criteria_indices[client_index]
-
-        # check if latest index which represents the current candle meets the criteria
-        ret_val = np.isin([index], approved_indices)[0]
+        
+        if self.use_dl_model:
+            if self.real_time:
+                self.logger.info("Using classification model to determine whether to buy or not")
+            raw_sample_data = self.generate_dl_model_sample(client_index=client_index, candle_index=index)
+            input_vec = self.dl_data_generator.generate_sample(raw_sample_data)
+            scaled_input_vec = self.dl_scalar.transform(input_vec.to_numpy().reshape(1, -1))
+            if np.isnan(scaled_input_vec).any():
+                if self.real_time:
+                    self.logger.info(f"data sample has Nan, returning false")
+                ret_val = False
+            else:
+                classifier_out = float(self.dl_model.predict(scaled_input_vec))
+                ret_val = classifier_out > self.model_thresh
+                if self.real_time:
+                    self.logger.info(f"Classification model returned [{classifier_out} {'>' if ret_val else '<='} MODEL_THRESHOLD={self.model_thresh}]")
+        else:
+            # check if latest index which represents the current candle meets the criteria
+            ret_val = np.isin([index], approved_indices)[0]
+        
+        if self.real_time:
+            # clear candle data only after generating model sample from it
+            self.flush_candle_data_entry()
         
         if self.block_buy:
             if ret_val:
@@ -447,6 +484,10 @@ class StockBot:
                     self.logger.info("Criteria not met and buy is unblocked -> return [False]")
                 return False
 
+    @property
+    def use_dl_model(self) -> bool:
+        return self.dl_model is not None
+
     def extract_single_candle_data(self, client_index: int, candle_index: int):
         """
         builds a dict representing a single row in the candle data dataframe-
@@ -457,10 +498,42 @@ class StockBot:
         self.curr_data_entry['high'] = self.clients[client_index].get_high_prices()[candle_index]
         self.curr_data_entry['low'] = self.clients[client_index].get_low_prices()[candle_index]
         self.curr_data_entry['close'] = self.clients[client_index].get_closing_price()[candle_index]
-        self.curr_data_entry['ema9'] = self.get_ema(client_index, length=9)[candle_index]
-        # self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[candle_index]
-        self.curr_data_entry['ema48'] = self.get_ema(client_index, length=48)[candle_index]
-        self.curr_data_entry['ema100'] = self.get_ema(client_index, length=100)[candle_index]
+        if len(self.clients[client_index].candles) >= 21:
+            self.curr_data_entry['ema20'] = self.get_ema(client_index, length=20)[candle_index]
+        else:
+            self.curr_data_entry['ema20'] = 0
+        if len(self.clients[client_index].candles) >= 26:
+            self.curr_data_entry['ema25'] = self.get_ema(client_index, length=25)[candle_index]
+        else:
+            self.curr_data_entry['ema25'] = 0
+        if len(self.clients[client_index].candles) >= 31:
+            self.curr_data_entry['ema30'] = self.get_ema(client_index, length=30)[candle_index]
+        else:
+            self.curr_data_entry['ema30'] = 0
+        if len(self.clients[client_index].candles) >= 36:
+            self.curr_data_entry['ema35'] = self.get_ema(client_index, length=35)[candle_index]
+        else:
+            self.curr_data_entry['ema35'] = 0
+        if len(self.clients[client_index].candles) >= 41:
+            self.curr_data_entry['ema40'] = self.get_ema(client_index, length=40)[candle_index]
+        else:
+            self.curr_data_entry['ema40'] = 0
+        if len(self.clients[client_index].candles) >= 46:
+            self.curr_data_entry['ema45'] = self.get_ema(client_index, length=45)[candle_index]
+        else:
+            self.curr_data_entry['ema45'] = 0
+        if len(self.clients[client_index].candles) >= 201:
+            self.curr_data_entry['ema200'] = self.get_ema(client_index, length=200)[candle_index]
+        else:
+            self.curr_data_entry['ema200'] = 0
+        if len(self.clients[client_index].candles) >= 51:
+            self.curr_data_entry['ema50'] = self.get_ema(client_index, length=50)[candle_index]
+        else:
+            self.curr_data_entry['ema50'] = 0
+        if len(self.clients[client_index].candles) >= 101:
+            self.curr_data_entry['ema100'] = self.get_ema(client_index, length=100)[candle_index]
+        else:
+            self.curr_data_entry['ema100'] = 0
 
     def extract_candle_data_table(self, client_index: int):
         """
@@ -473,10 +546,20 @@ class StockBot:
         self.temp_client_candle_df['low'] = self.clients[client_index].get_low_prices().tolist()
         self.temp_client_candle_df['high'] = self.clients[client_index].get_high_prices().tolist()
         self.temp_client_candle_df['close'] = self.clients[client_index].get_closing_price().tolist()
-        if len(self.clients[client_index].candles) >= 10:
-            self.temp_client_candle_df['ema9'] = self.get_ema(client_index, length=9).tolist()
-        if len(self.clients[client_index].candles) >= 49:
-            self.temp_client_candle_df['ema48'] = self.get_ema(client_index, length=48).tolist()
+        if len(self.clients[client_index].candles) >= 21:
+            self.temp_client_candle_df['ema20'] = self.get_ema(client_index, length=20).tolist()
+        if len(self.clients[client_index].candles) >= 26:
+            self.temp_client_candle_df['ema25'] = self.get_ema(client_index, length=25).tolist()
+        if len(self.clients[client_index].candles) >= 31:
+            self.temp_client_candle_df['ema30'] = self.get_ema(client_index, length=30).tolist()
+        if len(self.clients[client_index].candles) >= 36:
+            self.temp_client_candle_df['ema35'] = self.get_ema(client_index, length=35).tolist()
+        if len(self.clients[client_index].candles) >= 41:
+            self.temp_client_candle_df['ema40'] = self.get_ema(client_index, length=40).tolist()
+        if len(self.clients[client_index].candles) >= 46:
+            self.temp_client_candle_df['ema45'] = self.get_ema(client_index, length=45).tolist()
+        if len(self.clients[client_index].candles) >= 51:
+            self.temp_client_candle_df['ema50'] = self.get_ema(client_index, length=50).tolist()
         if len(self.clients[client_index].candles) >= 101:
             self.temp_client_candle_df['ema100'] = self.get_ema(client_index, length=100).tolist()
         if len(self.clients[client_index].candles) >= 201:
@@ -492,6 +575,34 @@ class StockBot:
         # now that the candle data was added, multiindex to make further operations faster
         if not self.real_time:
             reindex_df(self.data_collection_df, ['date', 'name'])
+
+    def generate_dl_model_sample(self, client_index: int, candle_index: int) -> RawDataSample:
+        curr_date = self.clients[client_index].get_candle_date(candle_index)
+        curr_candle_data = self.data_collection_df.loc[(curr_date, self.clients[client_index].name)] if not self.real_time else None
+        curr_candle_close = self.get_close_price(client_index, candle_index)
+        
+        raw_sample = RawDataSample(
+            close=curr_candle_close,
+            percentage_diff=self.percentage_diff,
+            accumulated_percentage_diff=self.accumulated_percentage_diff,
+            num_candles_in_trend=self.num_candles_in_trend,
+            ema20=self.curr_data_entry['ema20'] if self.real_time else curr_candle_data['ema20'],
+            ema50=self.curr_data_entry['ema50'] if self.real_time else curr_candle_data['ema50'],
+            ema100=self.curr_data_entry['ema100'] if self.real_time else curr_candle_data['ema100'],
+            ema200=self.curr_data_entry['ema200'] if self.real_time else curr_candle_data['ema200'],
+            ema25=self.curr_data_entry['ema25'] if self.real_time else curr_candle_data['ema25'],
+            ema30=self.curr_data_entry['ema30'] if self.real_time else curr_candle_data['ema30'],
+            ema35=self.curr_data_entry['ema35'] if self.real_time else curr_candle_data['ema35'],
+            ema40=self.curr_data_entry['ema40'] if self.real_time else curr_candle_data['ema40'],
+            ema45=self.curr_data_entry['ema45'] if self.real_time else curr_candle_data['ema45'],
+            rsi=self.curr_data_entry['RSI'] if self.real_time else curr_candle_data['RSI'],
+            supertrend=self.curr_data_entry['SUPERTREND'] if self.real_time else curr_candle_data['SUPERTREND'],
+            macd=self.curr_data_entry['MACD'] if self.real_time else curr_candle_data['MACD'],
+            macd_signal=self.curr_data_entry['MACD_SIGNAL'] if self.real_time else curr_candle_data['MACD_SIGNAL'],
+            macd_h=self.curr_data_entry['MACDh'] if self.real_time else curr_candle_data['MACDh'],
+            date=curr_date,
+        )
+        return raw_sample
 
     def is_sell(self, client_index: int, index: int = None) -> bool:
         if index is None:
@@ -721,6 +832,43 @@ class StockBot:
         True if there's a client that still needs to sell
         """
         return any([self.status[k] == SellStatus.BOUGHT for k in range(len(self.clients))])
+    
+    def update_dl_attributes(self, client_index: int, candle_index: int) -> None:
+        """
+        This function calculates the relative changes between candle prices in order to
+        be able to derive the features of the deep learning classification model.
+        Attributes which are calculated:
+            - percentage differance from the latest candle
+            - accumulated percentage differance of the most recent tred
+            - number of candles in the most recent trend
+        """
+        if self.real_time:
+            self.logger.info("Calculating classification model attributes")
+        # reset attributes at the start of each trading day
+        if self.clients[client_index].is_in_first_n_candles(candle_index=candle_index, n=1):
+            self.accumulated_percentage_diff = self.percentage_diff = self.num_candles_in_trend = 0
+            return
+        
+        prev_candle_close: float = 0
+        curr_candle_close = self.get_close_price(client_index, candle_index)
+        
+        if (not self.real_time and candle_index > 0) or (self.real_time and self.get_num_candles(client_index) > 1): 
+            prev_candle_close = self.get_close_price(client_index, candle_index-1)
+        diff_from_prev_candle = curr_candle_close - prev_candle_close
+        percentage_diff_from_last_candle=(diff_from_prev_candle / prev_candle_close)
+        
+        if self.num_candles_in_trend >= 0 and percentage_diff_from_last_candle > 0 and self.accumulated_percentage_diff >= 0:
+            self.num_candles_in_trend += 1
+            self.accumulated_percentage_diff = (1 + percentage_diff_from_last_candle) * (1 + self.accumulated_percentage_diff) - 1
+        elif self.num_candles_in_trend <= 0 and percentage_diff_from_last_candle < 0 and self.accumulated_percentage_diff <= 0:
+            self.num_candles_in_trend -= 1
+            self.accumulated_percentage_diff = -1 * ((-1 + percentage_diff_from_last_candle) * (-1 + self.accumulated_percentage_diff)) + 1
+        else:
+            self.num_candles_in_trend = 0
+            self.accumulated_percentage_diff = percentage_diff_from_last_candle
+            
+        self.percentage_diff = percentage_diff_from_last_candle
+        
 
     def main_loop_history(self, candle_range: Tuple[int, int] = None) -> float:
         if candle_range:
@@ -730,6 +878,8 @@ class StockBot:
 
         for i in range(start, end):
             for j in range(len(self.clients)):
+                if self.use_dl_model:
+                    self.update_dl_attributes(client_index=j, candle_index=i)
                 if self.status[j] in (SellStatus.SOLD, SellStatus.NEITHER) and not self.is_client_occupied():  # try to buy
                     condition = self.is_buy(index=i, client_index=j)
                     if condition:
@@ -751,12 +901,17 @@ class StockBot:
             self.log_summary()
         return self.capital
 
-    def add_candle(self, client_index: int):
+    def add_candle(self, client_index: int) -> bool:
+        """
+        add the latest available candle and retunr True if it is a new candle
+        """
         lastest_time = self.clients[client_index].get_candle_date(-1)
         self.clients[client_index].add_candle()
         if self.clients[client_index].get_candle_date(-1) != lastest_time:
             self.data_changed[client_index] = True
             self.logger.info(f"New candle added!")
+            return True
+        return False
 
     async def main_loop_real_time(self) -> float:
         self.logger.info("------------------ Main loop ----------------------\n")
@@ -769,7 +924,11 @@ class StockBot:
             for j in range(len(self.clients)):
                 self.logger.info(f"Total cash: [{self.clients[j].get_cash()}$]")
                 self.logger.info(f"Stock holdings: {self.clients[j].get_stock_holdings()}")
-                self.add_candle(client_index=j)
+                new_candle_added = self.add_candle(client_index=j)
+                if new_candle_added:
+                    if self.use_dl_model:
+                        self.update_dl_attributes(client_index=j, candle_index=-1)
+                self.update_dl_attributes(client_index=j, candle_index=i, )
                 self.logger.info(
                     f"Current candle: {self.clients[j].get_candle_date(-1)}; Stock: {self.clients[j].name}")
 
@@ -942,8 +1101,21 @@ if __name__ == '__main__':
         # this is used in order to get the value of ^VIX
         # vix_client = StockClientInteractive(name=VIX, client_id=len(clients)+1) if not REAL_TIME else None
         vix_client = None  # todo need to make this work with interactive
+        
+        # declare optional variables used with dl model
+        dl_model: Optional[FcClassifier] = None
+        scalar = None
+        data_generator: Optional[DataGenerator] = None
 
-        sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST, vix_client=vix_client)
+        if USE_DL_MODEL:
+            data_generator = DataGenerator(clients[0])
+            raw_data = data_generator.get_training_data()
+            X, y, scalar = DataGenerator.pre_process(raw_data)
+            dl_model = FcClassifier(X, y)
+            dl_model.train_nn_model()
+
+        sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST, vix_client=vix_client,
+                      model=dl_model, data_generator=data_generator, scalar=scalar)
         if sb.real_time:
             if DEFAULT_USE_PYRAMID:
                 # calculate updated risk unit before running real-time
