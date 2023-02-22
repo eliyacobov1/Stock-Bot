@@ -1,9 +1,11 @@
-from typing import Dict
-from ib_insync import *
-from pandas_ta import *
-
 import datetime
+import pandas as pd
 import numpy as np
+from pandas_ta import rsi, atr, supertrend, macd, ema
+from ib_insync import Stock, util
+from dataclasses import dataclass
+from typing import Tuple
+
 from sklearn.preprocessing import StandardScaler
 
 from stock_client import StockClient
@@ -12,8 +14,7 @@ from stock_client import StockClient
 DURATION = '2 M'
 CANDLE_SIZE = 5
 BAR_SIZE = "5 mins"
-
-
+STOCK_NAME = 'SOXL'
 ATR_PERIOD = 14
 RSI_PERIOD = 14
 RSI_COLUMN = "RSI_" + str(RSI_PERIOD)
@@ -320,7 +321,7 @@ class DataGenerator:
     """
     def __init__(self, client: StockClient) -> None:
         self.client = client._client
-        self.contract = client._stock
+        self.contract = Stock(STOCK_NAME, 'SMART', 'USD')
     
     def get_training_data(self) -> pd.DataFrame:
         df = retrieve_candles(self.client, self.contract)
