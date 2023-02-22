@@ -22,7 +22,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
                     REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG,
                     TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD,
-                    USE_DL_MODEL, CLASSIFIER_THRESH, MACD_H_INDEX)
+                    USE_DL_MODEL, CLASSIFIER_THRESH, MACD_H_INDEX, DL_GREATER_THAN)
 from stock_client import StockClient
 from dl_utils.data_generator import DataGenerator, RawDataSample
 from dl_utils.fc_classifier import FcClassifier
@@ -180,6 +180,7 @@ class StockBot:
         self.dl_scalar = scalar
         self.dl_data_generator = data_generator
         self.model_thresh = CLASSIFIER_THRESH
+        self.dl_model_greater_than = DL_GREATER_THAN
         self.num_candles_in_trend = 0  # number of candles in a continous trend slope
         self.percentage_diff = 0
         self.accumulated_percentage_diff = 0
@@ -453,9 +454,9 @@ class StockBot:
                 ret_val = False
             else:
                 classifier_out = float(self.dl_model.predict(scaled_input_vec))
-                ret_val = classifier_out > self.model_thresh
+                ret_val = (classifier_out > self.model_thresh) if self.dl_model_greater_than else (classifier_out < self.model_thresh)
                 if self.real_time:
-                    self.logger.info(f"Classification model returned [{classifier_out} {'>' if ret_val else '<='} MODEL_THRESHOLD={self.model_thresh}]")
+                    self.logger.info(f"Classification model returned [{classifier_out} {'>' if classifier_out > self.model_thresh else '<='} MODEL_THRESHOLD={self.model_thresh}]")
         else:
             # check if latest index which represents the current candle meets the criteria
             ret_val = np.isin([index], approved_indices)[0]

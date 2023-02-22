@@ -10,8 +10,10 @@ GAIN, LOSS = "Gain", "Loss"
 TRADE_NOT_COMPLETE = -1
 TRADE_COMPLETE = 0
 
-USE_DL_MODEL = False
-CLASSIFIER_THRESH = 0.5
+USE_DL_MODEL = True
+CLASSIFIER_THRESH = 0.3
+# defines whether dl model ouput should be grater or lower than the calssifier threshhold
+DL_GREATER_THAN = False
 
 # sell parameters
 STOP_LOSS_RANGE = 10
@@ -53,7 +55,7 @@ STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]
 DEFAULT_CRITERIA_LIST = STRATEGY_1
 
-STOCKS = ["SOXL"]
+STOCKS = ["SOXS"]
 
 REAL_TIME = True
 ALWAYS_BUY = False  # for debugging
