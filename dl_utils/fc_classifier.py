@@ -2,28 +2,43 @@ import pandas as pd
 from sklearn.metrics import confusion_matrix
 from keras.optimizers import Adam
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Dropout
 
 
 class FcClassifier:
     def __init__(self, X: pd.DataFrame, y: pd.Series) -> None:
         # Create a neural network model using the Sequential API
-        self.X = X
-        self.y = y
-        self.model = Sequential()
-        self.model.add(Dense(32, input_shape=(X.shape[1],), activation='relu'))
-        self.model.add(Dense(32, activation='relu'))
-        self.model.add(Dense(1, activation='sigmoid'))
+        model = Sequential()
+        model.add(Dense(32, input_shape=(X.shape[1],), activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(64, activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(128, activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(256, activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(128, activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(64, activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(32, activation='relu'))
+        model.add(Dropout(0.2))
+        model.add(Dense(X.shape[1], activation='relu'))
+        model.add(Dropout(0.2))   
+        model.add(Dense(1, activation='sigmoid'))
 
         # Compile the model
-        self.model.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.07), metrics=['accuracy'])
+        model.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.001), metrics=['accuracy', 'Precision', 'Recall'])
+        self.model = model
+        self.X = X
+        self.y = y
 
     def train_nn_model(self):
         self.model.summary()
 
         # Train the model
         print("[+] Training the model...")
-        self.model.fit(self.X, self.y, epochs=100, batch_size=32, verbose=1)
+        self.model.fit(self.X, self.y, epochs=300, batch_size=32, verbose=1)
     
     def evaluate_model(self, X_test: pd.DataFrame, y_test: pd.Series):
         # Evaluate the model

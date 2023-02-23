@@ -19,7 +19,7 @@ EMAIL_SENDER = 'eleinvestgroup@gmail.com'
 EMAIL_RECEIVER_ALL = ['eladbeber619@gmail.com', 'elad_beber@walla.com', 'lidornu@gmail.com','eli.yacobov1@gmail.com']
 EMAIL_RECEIVER_ELE = ['eleinvestgroup@gmail.com']
 
-
+# asd
 def minutes_to_secs(minutes: int):
     """
     this function adds the given number of minutes to a given time in unix format

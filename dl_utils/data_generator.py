@@ -9,13 +9,13 @@ from typing import Tuple
 from sklearn.preprocessing import StandardScaler
 
 from stock_client import StockClient
+from consts import ATR_MUL, ATR_PERIOD, TAKE_PROFIT_MULTIPLIER as TAKE_PROFIT
 
 # parameters for historical data fetching
-DURATION = '2 M'
+DURATION = '6 M'
 CANDLE_SIZE = 5
 BAR_SIZE = "5 mins"
 STOCK_NAME = 'SOXL'
-ATR_PERIOD = 14
 RSI_PERIOD = 14
 RSI_COLUMN = "RSI_" + str(RSI_PERIOD)
 SUPERTREND_PERIOD = 7
@@ -37,8 +37,6 @@ OUTPUT_COLS = ['pct_change','acc_pct_change','pos_change_in_a_row','neg_change_i
 PREDICTION_FEATURE = 'is_win'
 
 STOP_LOSS = 0.9975
-TAKE_PROFIT = 0.3
-ATR_MUL = 2.5
 
 
 @dataclass
@@ -283,9 +281,9 @@ def print_summary(df: pd.DataFrame):
     print(f"\n[+] Total Winning Trades Final: {len(df[(df['Final_Profit_Trade'] == True) & (df['Is_Buy'] == True)])}")
     print(f"[+] Total Losing Trades Final: {len(df[(df['Final_Profit_Trade'] == False) & (df['Is_Buy'] == True)])}")
 
-def save_to_csv(df: pd.DataFrame):
+def save_to_csv(df: pd.DataFrame,name: str):
     print(f"[+] Saving to csv")
-    df.to_csv(f'{BAR_SIZE}.csv')
+    df.to_csv(f'{name}_{BAR_SIZE}.csv')
 
 # create a function that create a new column name minute_number that will
 # be the number of the minute of the day that start from 16:30:00 to 22:55:00 
@@ -300,19 +298,22 @@ def get_minute_number_from_date(date):
     return (((hour-16)*60 + minute) / CANDLE_SIZE)- 5
 
 def create_ai_csv(df: pd.DataFrame) -> pd.DataFrame:
-    print(f"[+] Creating AI CSV")
+    try:
+        print(f"[+] Creating AI CSV")
+        df = df.iloc[200:]  # droptown tht first 200 rows
+        
+        # change IS_EMA_Ribbon to 1 and 0 if true or false
+        df['IS_EMA_Ribbon'] = df['IS_EMA_Ribbon'].apply(lambda x: 1 if x else 0)
 
-    # droptown tht first 200 rows
-    df = df.iloc[200:]
-    # change IS_EMA_Ribbon to 1 and 0 if true or false
-    df['IS_EMA_Ribbon'] = df['IS_EMA_Ribbon'].apply(lambda x: 1 if x else 0)
-    # add colmn is_win if pr Profit_Trade_Pct > 0 
-    df['is_win'] = df['Profit_Trade_Pct'].apply(lambda x: 1 if x > 0 else 0)
-    
-    # filter the training features from the csv columns
-    df = df[OUTPUT_COLS + [PREDICTION_FEATURE]]
-    return df 
-
+        # add colmn is_win if pr Profit_Trade_Pct > 0 
+        df['is_win'] = df['Profit_Trade_Pct'].apply(lambda x: 1 if x > 0 else 0)
+        
+        # filter the training features from the csv columns
+        df = df[OUTPUT_COLS + [PREDICTION_FEATURE]]
+        
+        return df 
+    except Exception as e:
+        print(f"[-] Error in create_ai_csv ", e)
  
 class DataGenerator:
     """
@@ -336,7 +337,11 @@ class DataGenerator:
         df = final_profit_trade(df)
         df = is_buy(df)
         df = get_minute_number(df)
+        save_to_csv(df,'full')
         df = create_ai_csv(df)
+        save_to_csv(df,'ai')
+        # print first 5 rows
+        print(df.head())
         return df
     
     @staticmethod

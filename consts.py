@@ -11,15 +11,16 @@ TRADE_NOT_COMPLETE = -1
 TRADE_COMPLETE = 0
 
 USE_DL_MODEL = True
-CLASSIFIER_THRESH = 0.3
-# defines whether dl model ouput should be grater or lower than the calssifier threshhold
-DL_GREATER_THAN = False
+CLASSIFIER_THRESH_MIN = 0
+CLASSIFIER_THRESH_MAX = 0.3
 
 # sell parameters
 STOP_LOSS_RANGE = 10
 STOP_LOSS_PERCENTAGE_MARGIN = 0.002
-TAKE_PROFIT_MULTIPLIER = 1.5
+TAKE_PROFIT_MULTIPLIER = 1
 STOP_LOSS_LOWER_BOUND = 0.07
+ATR_MUL = 2.5
+ATR_PERIOD = 14
 
 OUTPUT_PLOT = True
 
@@ -46,16 +47,14 @@ RSI_PARAMS = 14  # length
 #   change limit sell order to market on eod
 #   ib.portfolio()
 #   validate current trades vs. ib_trades.api
-#   update current cash from api
-#   update stock bot on sell market order
-#   store criterion data on every candle- RSI, MACD, SUPER-TREND, EMA9, EMA48, EMA100, EMA200, VWAP,
-#       VIX, high, low (at the time of the candle) and log to logger
+#   check how to write to dashboard datasheet csv
+#   convert all not self.real_time into an encapsulated property
 
 STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]
 DEFAULT_CRITERIA_LIST = STRATEGY_1
 
-STOCKS = ["SOXS"]
+STOCKS = ["SOXL"]
 
 REAL_TIME = True
 ALWAYS_BUY = False  # for debugging
@@ -85,7 +84,7 @@ TRADE_SUMMARY_CSV_NAME = 'trade_summary.csv'
 VIX = "^VIX"
 
 # period of candle history to fetch on init
-REAL_TIME_PERIOD = 3
+REAL_TIME_PERIOD = 10
 HISTORY_PERIOD = 60
 PYR_RISK_UNIT_CALCULATION_PERIOD = 30
 

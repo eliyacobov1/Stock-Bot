@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple, Dict, Callable
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from pandas_ta import rsi, macd, supertrend, ema, vwap
+from pandas_ta import rsi, macd, supertrend, ema, vwap, atr
 import logging
 
 from utils import (minutes_to_secs, days_to_secs, filter_by_array, get_curr_utc_2_timestamp, get_percent,
@@ -22,7 +22,7 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
                     REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG,
                     TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD,
-                    USE_DL_MODEL, CLASSIFIER_THRESH, MACD_H_INDEX, DL_GREATER_THAN)
+                    USE_DL_MODEL, CLASSIFIER_THRESH_MIN,CLASSIFIER_THRESH_MAX, MACD_H_INDEX, ATR_MUL, ATR_PERIOD)
 from stock_client import StockClient
 from dl_utils.data_generator import DataGenerator, RawDataSample
 from dl_utils.fc_classifier import FcClassifier
@@ -179,8 +179,10 @@ class StockBot:
         self.dl_model = model
         self.dl_scalar = scalar
         self.dl_data_generator = data_generator
-        self.model_thresh = CLASSIFIER_THRESH
-        self.dl_model_greater_than = DL_GREATER_THAN
+        self.model_thresh_min = CLASSIFIER_THRESH_MIN
+        self.model_thresh_max = CLASSIFIER_THRESH_MAX
+        self.atr_mul = ATR_MUL
+        self.atr_period = ATR_PERIOD
         self.num_candles_in_trend = 0  # number of candles in a continous trend slope
         self.percentage_diff = 0
         self.accumulated_percentage_diff = 0
@@ -454,9 +456,12 @@ class StockBot:
                 ret_val = False
             else:
                 classifier_out = float(self.dl_model.predict(scaled_input_vec))
-                ret_val = (classifier_out > self.model_thresh) if self.dl_model_greater_than else (classifier_out < self.model_thresh)
+                ret_val = (classifier_out >= self.model_thresh_min and classifier_out <= self.model_thresh_max)
                 if self.real_time:
-                    self.logger.info(f"Classification model returned [{classifier_out} {'>' if classifier_out > self.model_thresh else '<='} MODEL_THRESHOLD={self.model_thresh}]")
+                    if ret_val:
+                        self.logger.info(f"Classification model returned [{classifier_out}] between [{self.model_thresh_min}, {self.model_thresh_max}] -> return [{ret_val}]")
+                    else:
+                        self.logger.info(f"Classification model returned [{classifier_out}] outside [{self.model_thresh_min}, {self.model_thresh_max}] -> return [{ret_val}]")
         else:
             # check if latest index which represents the current candle meets the criteria
             ret_val = np.isin([index], approved_indices)[0]
@@ -651,11 +656,18 @@ class StockBot:
 
         # TODO don't buy if stop loss percentage is >= X, put in LS
         loss_percentage = 1-(local_min/stock_price)+STOP_LOSS_PERCENTAGE_MARGIN
-        if loss_percentage > self.stop_loss_bound and (self.real_time or self.enable_history_log):
-            self.logger.info("Loss precentage is bigger than stop loss bound, aborting... -> return [trade not complete]")
-            return TRADE_NOT_COMPLETE
-        self.stop_loss = stock_price * (1-loss_percentage)
-        self.take_profit = stock_price*((loss_percentage * self.take_profit_multiplier)+1)
+        # if loss_percentage > self.stop_loss_bound and (self.real_time or self.enable_history_log):
+        #     self.logger.info("Loss precentage is bigger than stop loss bound, aborting... -> return [trade not complete]")
+        #     return TRADE_NOT_COMPLETE
+        if self.use_dl_model:
+            close_prices = self.clients[client_index].get_closing_price()
+            high_prices = self.clients[client_index].get_high_prices()
+            atr_val = round(atr(high_prices, low_prices, close_prices, length=self.atr_period)[index], 2)
+            self.stop_loss = stock_price - (atr_val * self.atr_mul)
+            self.take_profit = stock_price + (atr_val * ATR_MUL * self.take_profit_multiplier)
+        else:
+            self.stop_loss = stock_price * (1-loss_percentage)
+            self.take_profit = stock_price*((loss_percentage * self.take_profit_multiplier)+1)
 
         if self.use_pyramid:
             ru_dollars = get_percent(self.capital, self.risk_unit*self.ru_percentage)
