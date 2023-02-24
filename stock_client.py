@@ -19,7 +19,7 @@ from utils import (convert_timestamp_format,
 
 
 class StockClient(ABC):
-    __slots__: List[str] = ['name', 'candles', '_client', '_res', '_timezone']
+    __slots__: List[str] = ['name', 'candles', 'trade_candles', '_client', '_res', '_timezone']
 
     @property
     def client(self):
@@ -346,6 +346,9 @@ class StockClientInteractive(StockClient):
 
     def get_closing_price(self) -> pd.Series:
         return self.candles['close']
+    
+    def get_trade_closing_price(self) -> pd.Series:
+        return self.trade_candles['close']
 
     def get_opening_price(self) -> pd.Series:
         return self.candles['open']
@@ -621,9 +624,9 @@ class StockClientInteractive(StockClient):
     def get_num_candles(self) -> int:
         return self.candles.shape[0]
 
-    def add_candle(self) -> True:
-        self.candles.reset_index(inplace=True)
-        candles = self._client.reqHistoricalData(self._data_stock, endDateTime='', durationStr=self.res_to_period(self._res),
+    def _add_stock_candle(self, stock: ib_insync.Stock, df: pd.DataFrame) -> pd.DataFrame:
+        df.reset_index(inplace=True)
+        candles = self._client.reqHistoricalData(stock, endDateTime='', durationStr=self.res_to_period(self._res),
                                                  barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=True)
         while len(candles) == 0:
             self.logger.info("waiting for data")
@@ -631,25 +634,46 @@ class StockClientInteractive(StockClient):
         df_candles = ib_insync.util.df(candles).round(2)
         latest_date = self.parse_time(candle_index=-1)
         if self.parse_time(str(df_candles.iloc[-1].date)) == latest_date:
-            self.candles.drop(self.candles.tail(n=1).index, inplace=True)
+            df.drop(df.tail(n=1).index, inplace=True)
         elif len(df_candles) > 1 and self.parse_time(str(df_candles.iloc[-2].date)) == latest_date:
-            self.candles.drop(self.candles.tail(n=1).index, inplace=True)
-            self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
+            df.drop(df.tail(n=1).index, inplace=True)
+            df = df.append(df_candles.iloc[-2], ignore_index=True)
         elif len(df_candles) > 1:
-            self.candles = self.candles.append(df_candles.iloc[-2], ignore_index=True)
-        self.candles = self.candles.append(df_candles.iloc[-1], ignore_index=True)
-        reindex_df(self.candles, ['date'])
-        return True
+            df = df.append(df_candles.iloc[-2], ignore_index=True)
+        df = df.append(df_candles.iloc[-1], ignore_index=True)
+        reindex_df(df, ['date'])
+        
+        return df
+
+    def add_candle(self):
+        self.candles = self._add_stock_candle(self._data_stock, self.candles)
+        if self.data_stock_name == self.trade_stock_name:
+            self.trade_candles = self.candles
+        else:
+            self.trade_candles = self._add_stock_candle(self._trade_stock, self.trade_candles)
+
+    def _fetch_candles(self, stock: ib_insync.Stock, res: str, end_date: str, period: Union[str, int]) -> pd.DataFrame:
+        candles = self._client.reqHistoricalData(stock, endDateTime=end_date, durationStr=period,
+                                                 barSizeSetting=res, whatToShow='MIDPOINT', useRTH=True)
+        while len(candles) == 0:
+            self._client.waitOnUpdate()
+        candles_df = ib_insync.util.df(candles).round(2)
+        return candles_df
 
     def set_candle_data(self, res: TimeRes, period: Union[str, int] = None, start: int = None, end: int = None):
+        """
+        set candle data for both data stock and trade stock
+        """
         self.logger.info(f"fetching candle data with resoultion: {res}, period: {period}")
         self._res = res
         parsed_res = self.res_to_str(res)
-
         formatted_end = convert_timestamp_format(end) if end is not None else ''
-        candles = self._client.reqHistoricalData(self._data_stock, endDateTime=formatted_end, durationStr=period,
-                                                 barSizeSetting=parsed_res, whatToShow='MIDPOINT', useRTH=True)
-        while len(candles) == 0:
-            self._client.waitOnUpdate()
-        self.candles = ib_insync.util.df(candles).round(2)
+        
+        self.candles = self._fetch_candles(self._data_stock, parsed_res, formatted_end, period)
         reindex_df(self.candles, ['date'])
+        
+        if self.data_stock_name == self.trade_stock_name:
+            self.trade_candles = self.candles
+        else:
+            self.trade_candles = self._fetch_candles(self._trade_stock, parsed_res, formatted_end, period)
+            reindex_df(self.trade_candles, ['date'])

@@ -213,7 +213,13 @@ class StockBot:
         except KeyError:  # in case candle data is not found
             return
 
+    def get_trade_close_price(self, client_index: int, index=-1):
+        # get close price from trade stock
+        closing_price = self.clients[client_index].get_trade_closing_price()
+        return closing_price.iloc[index]
+
     def get_close_price(self, client_index: int, index=-1):
+        # get close price from data stock
         closing_price = self.clients[client_index].get_closing_price()
         return closing_price.iloc[index]
 
@@ -638,7 +644,7 @@ class StockBot:
         if index is None:  # real-time
             index = self.get_num_candles(client_index)-1
         low_prices = self.clients[client_index].get_low_prices()
-        stock_price = self.get_close_price(client_index, index)
+        stock_price = self.get_trade_close_price(client_index, index)
 
         # calculate local minima of history
         if self.is_bar_strategy():  # strategy no.2
