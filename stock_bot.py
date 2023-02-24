@@ -651,7 +651,7 @@ class StockBot:
             local_min = np.min(stop_loss_range)
 
         # in case of inconsistent data, local_min!=local_min when local_min is nan
-        if local_min != local_min or local_min > stock_price:
+        if not self.use_dl_model and (local_min != local_min or local_min > stock_price):
             self.logger.info("Local min is bigger than stock price, aborting... -> return [trade not complete]")
             return TRADE_NOT_COMPLETE
 
