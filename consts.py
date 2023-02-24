@@ -54,7 +54,7 @@ STRATEGY_1 = ["rsi", "supertrend", "macd"]
 STRATEGY_2 = ["insidebar", "reversalbar"]
 DEFAULT_CRITERIA_LIST = STRATEGY_1
 
-STOCKS = ["SOXL"]
+DATA_STOCKS_TO_TRADED_MAPPING = {"SOXL": "SOXS"}
 
 REAL_TIME = True
 ALWAYS_BUY = False  # for debugging

@@ -270,7 +270,7 @@ class StockClientYfinance(StockClient):
 
 
 class StockClientInteractive(StockClient):
-    def __init__(self, name: str, demo=True, client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None):
+    def __init__(self, data_stock: str, trade_stock: str, demo=True, client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None):
         super().__init__()
         
         self._timezone = TimeZones.ISRAEL
@@ -306,9 +306,11 @@ class StockClientInteractive(StockClient):
             ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=client_id if client_id is not None else 1)
         self.logger.info("Connected to IB")
 
-        self.name = name
-        self._stock = ib_insync.Stock(self.name, 'SMART', 'USD')
-        self.logger.info(f"Contract created with the stock [{self._stock}]")
+        self.data_stock_name = data_stock
+        self.trade_stock_name = trade_stock
+        self._data_stock = ib_insync.Stock(self.data_stock_name, 'SMART', 'USD')
+        self._trade_stock = ib_insync.Stock(self.trade_stock_name, 'SMART', 'USD')
+        self.logger.info(f"Contract created with data stock [{self.data_stock_name}], trade stock [{self.trade_stock_name}]")
         self._client = ib
 
         self._take_profit_observers: List[Callable[[float], None]] = []  # will be triggered when take profit is calculated
@@ -328,6 +330,14 @@ class StockClientInteractive(StockClient):
 
     def bind_cancel_observer(self, callback: Callable[[SellStatus], None]):
         self._cancel_observer = callback
+
+    @property
+    def name(self):
+        return self.data_stock_name
+    
+    @property
+    def trading_name(self):
+        return self.trade_stock_name
 
     @staticmethod
     def init_client() -> ib_insync.IB:
@@ -459,7 +469,7 @@ class StockClientInteractive(StockClient):
         status = trade.orderStatus.status
         self.logger.info(f"Order filled: {trade.order}")
         if not DEBUG:
-            send_email_all(f"Order Filled!",f"Stock: {self.name}\nOrder -> {str(trade.order)}")
+            send_email_all(f"Order Filled!",f"Stock: {self.trade_stock_name}\nOrder -> {str(trade.order)}")
 
         # transmit the take-profit sell order
         take_profit = float(format(get_take_profit(curr_price=price, stop_loss=stop_loss), '.2f'))
@@ -495,7 +505,7 @@ class StockClientInteractive(StockClient):
         return holdings
 
     def get_stock_holdings(self):
-        symbol = self.name
+        symbol = self.trade_stock_name
         holdings = []
         for i in self._client.positions():
             if i.contract.symbol == symbol:
@@ -506,7 +516,7 @@ class StockClientInteractive(StockClient):
 
     def sell_callback(self, trade: ib_insync.Trade):
         self.logger.info(f"Order filled: {trade.order}")
-        send_email_all(f"Order Filled!",f"Stock: {self.name}\nOrder -> {str(trade.order)}")
+        send_email_all(f"Order Filled!",f"Stock: {self.trade_stock_name}\nOrder -> {str(trade.order)}")
 
         self._reset_trades(trade_type=TradeTypes.BUY)
 
@@ -553,7 +563,7 @@ class StockClientInteractive(StockClient):
             self.logger.info("could not execute sell market trade; Bought quantity is undefined")
 
     def _execute_order(self, order: ib_insync.Order, wait_until_done=False) -> ib_insync.Trade:
-        trade = self.client.placeOrder(self._stock, order)
+        trade = self.client.placeOrder(self._trade_stock, order)
         if wait_until_done:
             while not trade.isDone():
                 self._client.sleep(1)
@@ -613,7 +623,7 @@ class StockClientInteractive(StockClient):
 
     def add_candle(self) -> True:
         self.candles.reset_index(inplace=True)
-        candles = self._client.reqHistoricalData(self._stock, endDateTime='', durationStr=self.res_to_period(self._res),
+        candles = self._client.reqHistoricalData(self._data_stock, endDateTime='', durationStr=self.res_to_period(self._res),
                                                  barSizeSetting=self.res_to_str(self._res), whatToShow='MIDPOINT', useRTH=True)
         while len(candles) == 0:
             self.logger.info("waiting for data")
@@ -637,7 +647,7 @@ class StockClientInteractive(StockClient):
         parsed_res = self.res_to_str(res)
 
         formatted_end = convert_timestamp_format(end) if end is not None else ''
-        candles = self._client.reqHistoricalData(self._stock, endDateTime=formatted_end, durationStr=period,
+        candles = self._client.reqHistoricalData(self._data_stock, endDateTime=formatted_end, durationStr=period,
                                                  barSizeSetting=parsed_res, whatToShow='MIDPOINT', useRTH=True)
         while len(candles) == 0:
             self._client.waitOnUpdate()

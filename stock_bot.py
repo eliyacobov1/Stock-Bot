@@ -17,12 +17,13 @@ from consts import (DEFAULT_RES, LONG_STOCK_NAME, MACD_INDEX, MACD_SIGNAL_INDEX,
                     STOP_LOSS_RANGE, TAKE_PROFIT_MULTIPLIER, SUPERTREND_COL_NAME, DEFAULT_RISK_UNIT,
                     DEFAULT_RISK_LIMIT, DEFAULT_START_CAPITAL, DEFAULT_CRITERIA_LIST, DEFAULT_USE_PYRAMID,
                     DEFAULT_GROWTH_PERCENT, DEFAULT_RU_PERCENTAGE, GAIN, LOSS, EMA_LENGTH, STOP_LOSS_PERCENTAGE_MARGIN,
-                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, STOCKS, FILTER_STOCKS,
+                    SHORT_STOCK_NAME, STOP_LOSS_LOWER_BOUND, TRADE_NOT_COMPLETE, OUTPUT_PLOT, FILTER_STOCKS,
                     RUN_ROBOT, USE_RUN_WINS, RUN_WINS_TAKE_PROFIT_MULTIPLIER, RUN_WINS_PERCENT, TRADE_COMPLETE,
                     MACD_PARAMS, SUPERTREND_PARAMS, RSI_PARAMS, N_FIRST_CANDLES_OF_DAY, N_LAST_CANDLES_OF_DAY,
                     REAL_TIME, SELL_ON_TOUCH, ALWAYS_BUY, CANDLE_DATA_CSV_NAME, TRADE_DATA_CSV_NAME, VIX, DEBUG,
                     TRADE_SUMMARY_CSV_NAME, REAL_TIME_PERIOD, HISTORY_PERIOD, PYR_RISK_UNIT_CALCULATION_PERIOD,
-                    USE_DL_MODEL, CLASSIFIER_THRESH_MIN,CLASSIFIER_THRESH_MAX, MACD_H_INDEX, ATR_MUL, ATR_PERIOD)
+                    USE_DL_MODEL, CLASSIFIER_THRESH_MIN,CLASSIFIER_THRESH_MAX, MACD_H_INDEX, ATR_MUL, ATR_PERIOD,
+                    DATA_STOCKS_TO_TRADED_MAPPING)
 from stock_client import StockClient
 from dl_utils.data_generator import DataGenerator, RawDataSample
 from dl_utils.fc_classifier import FcClassifier
@@ -898,13 +899,13 @@ class StockBot:
                     if condition:
                         ret_val = self.buy(index=i, client_index=j)
                         if ret_val == TRADE_COMPLETE and self.enable_history_log:  # in case trade was not complete
-                            self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name: {self.clients[j].name}\n")
+                            self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nStocks bought: {int(self.latest_trade[j][NUM_STOCKS])}\nStock name: {self.clients[j].trading_name}\n")
                 elif self.status[j] == SellStatus.BOUGHT:  # try to sell
                     condition = self.is_sell(index=i, client_index=j)
                     if condition:
                         price = self.sell(index=i, client_index=j)
                         if self.enable_history_log:
-                            self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nSell type: {GAIN if price > 0 else LOSS}\nStock name: {self.clients[j].name}\n")
+                            self.logger.info(f"Current capital: {format(self.capital, '.2f')}\nSell type: {GAIN if price > 0 else LOSS}\nStock name: {self.clients[j].trading_name}\n")
             # update the number of trades per day
             if i > 0 and self.clients[0].is_day_last_transaction(i-1):  # first candle of the day
                 curr_day_index = np.where(self.trades_per_day == -1)[0][0]
@@ -929,7 +930,7 @@ class StockBot:
     async def main_loop_real_time(self) -> float:
         self.logger.info("------------------ Main loop ----------------------\n")
         if not DEBUG:
-            send_email_all("Starting main loop ELE", f"Let's earn some money, Voovos!!!\nStocks: {STOCKS}")
+            send_email_all("Starting main loop ELE", f"Let's earn some money, Voovos!!!\nStocks: {[c.trading_name for c in self.clients]}")
         is_eod = False
         trading_started = False
         while not is_eod or self.is_client_occupied():
@@ -1110,7 +1111,8 @@ if __name__ == '__main__':
 
     if RUN_ROBOT:
         real_time_client = StockClientInteractive.init_client() if REAL_TIME else None
-        clients = [StockClientInteractive(name=name, client=real_time_client, client_id=i+1) for i, name in enumerate(STOCKS)]
+        clients = [StockClientInteractive(data_stock=dname, trade_stock=tname, client=real_time_client, client_id=i+1)
+                   for i, (dname, tname) in enumerate(DATA_STOCKS_TO_TRADED_MAPPING.items())]
         # this is used in order to get the value of ^VIX
         # vix_client = StockClientInteractive(name=VIX, client_id=len(clients)+1) if not REAL_TIME else None
         vix_client = None  # todo need to make this work with interactive
