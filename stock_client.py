@@ -270,7 +270,8 @@ class StockClientYfinance(StockClient):
 
 
 class StockClientInteractive(StockClient):
-    def __init__(self, data_stock: str, trade_stock: str, demo=True, client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None):
+    def __init__(self, data_stock: Optional[str] = None, trade_stock: Optional[str] = None, demo=True,
+                 client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None, config_logger: bool = True):
         super().__init__()
         
         self._timezone = TimeZones.ISRAEL
@@ -288,11 +289,12 @@ class StockClientInteractive(StockClient):
 
         # Create a logger object
         self.logger = logging.getLogger('StockClient')
-        self.logger.setLevel(logging.INFO)
-        # Add the FileHandler object to the logger object
-        self.logger.addHandler(self.file_handler)
-        # Use the logger object to log a message
-        self.logger.info("StockClient initialized")
+        if config_logger:
+            self.logger.setLevel(logging.INFO)
+            # Add the FileHandler object to the logger object
+            self.logger.addHandler(self.file_handler)
+            # Use the logger object to log a message
+            self.logger.info("StockClient initialized")
 
         if client is not None:
             ib = client
@@ -308,8 +310,10 @@ class StockClientInteractive(StockClient):
 
         self.data_stock_name = data_stock
         self.trade_stock_name = trade_stock
-        self._data_stock = ib_insync.Stock(self.data_stock_name, 'SMART', 'USD')
-        self._trade_stock = ib_insync.Stock(self.trade_stock_name, 'SMART', 'USD')
+        if self.data_stock_name is not None:
+            self._data_stock = ib_insync.Stock(self.data_stock_name, 'SMART', 'USD')
+        if self.trade_stock_name is not None:
+            self._trade_stock = ib_insync.Stock(self.trade_stock_name, 'SMART', 'USD')
         self.logger.info(f"Contract created with data stock [{self.data_stock_name}], trade stock [{self.trade_stock_name}]")
         self._client = ib
 
