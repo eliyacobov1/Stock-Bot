@@ -1,4 +1,5 @@
 import datetime
+import os
 import pandas as pd
 import numpy as np
 from pandas_ta import rsi, atr, supertrend, macd, ema
@@ -9,7 +10,7 @@ from typing import Tuple
 from sklearn.preprocessing import StandardScaler
 
 from stock_client import StockClient
-from consts import ATR_MUL, ATR_PERIOD, TAKE_PROFIT_MULTIPLIER as TAKE_PROFIT
+from consts import ATR_MUL, ATR_PERIOD, TAKE_PROFIT_MULTIPLIER as TAKE_PROFIT, DEFUALT_AI_DATA_PATH
 
 # parameters for historical data fetching
 DURATION = '6 M'
@@ -324,24 +325,29 @@ class DataGenerator:
         self.client = client._client
         self.contract = Stock(STOCK_NAME, 'SMART', 'USD')
     
-    def get_training_data(self) -> pd.DataFrame:
-        df = retrieve_candles(self.client, self.contract)
-        df = parse_stop_loss_and_take_profit(df)
-        df = parse_stop_loss_hit_date(df)
-        df = get_stop_loss_hit_row_number(df)
-        df = get_take_profit_hit_date(df)
-        df = get_take_profit_hit_row_number(df)
-        df = fill_profit_trade(df)
-        df = get_profit_trade_date(df)
-        df = get_profit_trade_pct(df)
-        df = final_profit_trade(df)
-        df = is_buy(df)
-        df = get_minute_number(df)
-        save_to_csv(df,'full')
-        df = create_ai_csv(df)
-        save_to_csv(df,'ai')
-        # print first 5 rows
-        print(df.head())
+    def get_training_data(self, from_file: bool = False) -> pd.DataFrame:
+        df: pd.DataFrame
+        
+        if from_file:
+            if os.path.isfile(DEFUALT_AI_DATA_PATH):
+                df = pd.read_csv(DEFUALT_AI_DATA_PATH)
+                print("loading ai training data from file")
+        else:
+            df = retrieve_candles(self.client, self.contract)
+            df = parse_stop_loss_and_take_profit(df)
+            df = parse_stop_loss_hit_date(df)
+            df = get_stop_loss_hit_row_number(df)
+            df = get_take_profit_hit_date(df)
+            df = get_take_profit_hit_row_number(df)
+            df = fill_profit_trade(df)
+            df = get_profit_trade_date(df)
+            df = get_profit_trade_pct(df)
+            df = final_profit_trade(df)
+            df = is_buy(df)
+            df = get_minute_number(df)
+            save_to_csv(df,'full')
+            df = create_ai_csv(df)
+            save_to_csv(df,'ai')
         return df
     
     @staticmethod

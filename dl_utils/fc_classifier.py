@@ -19,13 +19,14 @@ NUM_TRADING_HOURS = 6.5
 NUM_MINUTES_IN_HOUR = 60
 STATS_FILE_NAME = "df_stats_model_selection.csv"
 ACCURACY_COL_NAME = "0_0.30_ratio"
+ACCURACY_COL_INDEX = -1
 
 
 class FcClassifier:
     __slots__: List[str] = ['model', 'X', 'y', 'X_test', 'y_test', 'logger']
     
     def __init__(self, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None, split_test: bool = False) -> None:
-        self.init_model()
+        self.init_model(X)
         
         if split_test:
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
@@ -64,7 +65,7 @@ class FcClassifier:
 
         # Train the model
         print("[+] Training the model...")
-        model.fit(train, pred, epochs=50, batch_size=32, verbose=1)
+        model.fit(train, pred, epochs=1, batch_size=32, verbose=1)
 
     def train_nn_model(self):
         FcClassifier.train_model(self.model, self.X, self.y)
@@ -125,17 +126,28 @@ class FcClassifier:
             accuracy_data = self._dump_predictions(self.X_test, self.y_test)
             res_df.loc[len(res_df)] = accuracy_data
             self.logger.info(f"testing {i} done; got {accuracy_data}")
-            val_acc = accuracy_data[ACCURACY_COL_NAME]
+            val_acc = accuracy_data[ACCURACY_COL_INDEX]
             
             weight_dict[i] = (val_acc, model.get_weights())
         
         # Train the model multiple times in parallel and save the weights with the best test accuracy
-        with Pool(processes=n) as pool:
-            pool.map(train_and_eval, range(n))
+        # with Pool(processes=n) as pool:
+        #     pool.map(train_and_eval, range(n))
+        
+        for i in range(n):
+            train_and_eval(i)
             
         # Save the weights if they have the best test accuracy
-        weights = max(weight_dict.values(), key= lambda model_data: model_data[0])[1]
-        self.model.set_weights(weights)
+        best_acc_val = -1
+        best_model_number = 0
+        for i, (acc_val, weights) in enumerate(weight_dict.values()):
+            import pdb; pdb.set_trace()
+            if acc_val > best_acc_val:
+                best_acc_val = acc_val
+                best_model_number = i
+                self.model.set_weights(weights)
+
+        logging.info(f"best model {best_model_number} with acc {best_acc_val}")
         self.model.save_weights(WEIGHT_FILE_PATH)
         
         if write_results:

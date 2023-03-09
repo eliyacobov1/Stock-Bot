@@ -29,8 +29,8 @@ def generate_model_train_n_times(n: int = NUM_MODELS_TO_TRAIN):
     """
     client = StockClientInteractive()
     data_generator = DataGenerator(client=client)
-    data = data_generator.get_training_data()
-    X, y = data[:, :-1], data[:, -1]
+    data = data_generator.get_training_data(from_file=True)
+    X, y = data.iloc[:, :-1], data.iloc[:, -1]
 
     model = FcClassifier(X, y, split_test=True)
     
@@ -38,6 +38,7 @@ def generate_model_train_n_times(n: int = NUM_MODELS_TO_TRAIN):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    df: pd.DataFrame = train_and_test_period()
-    df.to_csv(STATS_FILE_NAME, index=False)
+    # logging.basicConfig(level=logging.INFO)
+    # df: pd.DataFrame = train_and_test_period()
+    # df.to_csv(STATS_FILE_NAME, index=False)
+    generate_model_train_n_times(5)

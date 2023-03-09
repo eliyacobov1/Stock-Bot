@@ -14,6 +14,7 @@ USE_DL_MODEL = True
 CLASSIFIER_THRESH_MIN = 0
 CLASSIFIER_THRESH_MAX = 0.3
 WEIGHT_FILE_PATH = "./dl_utils/weights.h5"
+DEFUALT_AI_DATA_PATH = "./ai_csv.csv"
 
 # sell parameters
 STOP_LOSS_RANGE = 10

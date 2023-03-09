@@ -304,7 +304,7 @@ class StockClientInteractive(StockClient):
         logging.getLogger('ib_insync').setLevel(logging.ERROR)  # silence api logger
         self.logger.info("ib_insync client created")
 
-        if not ib.isConnected():
+        if not ib.isConnected() and False:
             ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=client_id if client_id is not None else 1)
         self.logger.info("Connected to IB")
 
@@ -314,7 +314,8 @@ class StockClientInteractive(StockClient):
             self._data_stock = ib_insync.Stock(self.data_stock_name, 'SMART', 'USD')
         if self.trade_stock_name is not None:
             self._trade_stock = ib_insync.Stock(self.trade_stock_name, 'SMART', 'USD')
-        self.logger.info(f"Contract created with data stock [{self.data_stock_name}], trade stock [{self.trade_stock_name}]")
+        if self.trade_stock_name is not None or self.data_stock_name is not None:
+            self.logger.info(f"Contract created with data stock [{self.data_stock_name}], trade stock [{self.trade_stock_name}]")
         self._client = ib
 
         self._take_profit_observers: List[Callable[[float], None]] = []  # will be triggered when take profit is calculated
