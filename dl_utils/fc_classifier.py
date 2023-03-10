@@ -31,7 +31,7 @@ class FcClassifier:
         self.init_model(X)
         
         if split_test:
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, shuffle=False)
             self.X = X_train
             self.y = y_train
             self.X_test = X_test

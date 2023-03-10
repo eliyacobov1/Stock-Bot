@@ -16,7 +16,10 @@ def train_and_test_period() -> pd.DataFrame:
     model = FcClassifier()
     data_generator = DataGenerator(client=client)
     
-    data = data_generator.get_training_data()
+    pre_scaled_data = data_generator.get_training_data()
+    X, y, _ = DataGenerator.pre_process(pre_scaled_data)
+    data = pd.concat([X, y], axis=1)
+    
     res_df = model.train_test_model_over_time_period(period=DEFAULT_PERIOD, dataset=data)
     
     return res_df
@@ -30,7 +33,7 @@ def generate_model_train_n_times(n: int = NUM_MODELS_TO_TRAIN):
     client = StockClientInteractive()
     data_generator = DataGenerator(client=client)
     data = data_generator.get_training_data(from_file=True)
-    X, y = data.iloc[:, :-1], data.iloc[:, -1]
+    X, y, _ = DataGenerator.pre_process(data)
 
     model = FcClassifier(X, y, split_test=True)
     
