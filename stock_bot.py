@@ -138,10 +138,13 @@ class StockBot:
 
         # Add the FileHandler object to the logger object
         if self.real_time:
-            # Create a FileHandler object and set the log file name
-            self.file_handler = logging.FileHandler(self.log_file)
-            self.file_handler.setFormatter(self.formatter)
-            self.logger.addHandler(self.file_handler)
+            if DEBUG:
+                self.logger.addHandler(logging.StreamHandler(sys.stderr))
+            else:
+                # Create a FileHandler object and set the log file name
+                self.file_handler = logging.FileHandler(self.log_file)
+                self.file_handler.setFormatter(self.formatter)
+                self.logger.addHandler(self.file_handler)
             self.logger.info("Real time mode")
         elif self.enable_history_log:
             self.logger.addHandler(logging.StreamHandler(sys.stderr))
@@ -1132,7 +1135,7 @@ if __name__ == '__main__':
             data_generator = DataGenerator(clients[0])
             raw_data = data_generator.get_training_data()
             X, y, scalar = DataGenerator.pre_process(raw_data)
-            dl_model = FcClassifier(X, y)
+            dl_model = FcClassifier(X, y, weights_from_file=True)
             dl_model.train_nn_model()
 
         sb = StockBot(stock_clients=clients, period=period, criteria=DEFAULT_CRITERIA_LIST, vix_client=vix_client,

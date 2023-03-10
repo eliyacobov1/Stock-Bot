@@ -23,12 +23,21 @@ ACCURACY_COL_INDEX = -1
 
 
 class FcClassifier:
-    __slots__: List[str] = ['model', 'X', 'y', 'X_test', 'y_test', 'logger']
+    __slots__: List[str] = ['model', 'X', 'y', 'X_test', 'y_test', 'logger', 'weights_loaded']
     
-    def __init__(self, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None, split_test: bool = False) -> None:
+    def __init__(self, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None, split_test: bool = False,
+                 weights_from_file: bool = False) -> None:
         logging.info(f"X shape: {X.shape}, y shape: {y.shape}")
 
         self.init_model(X)
+        
+        # load pre-trained weights from disk
+        if weights_from_file and os.path.isfile(WEIGHT_FILE_PATH):
+            self.model.load_weights(WEIGHT_FILE_PATH)
+            self.logger.info("model weights loaded from file")
+            self.weigths_loaded = True
+        else:
+            self.weigths_loaded = False
         
         if split_test:
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, shuffle=False)
@@ -70,6 +79,9 @@ class FcClassifier:
         model.fit(train, pred, epochs=50, batch_size=32, verbose=1)
 
     def train_nn_model(self):
+        if self.weights_loaded:
+            self.logger.info("model already loaded with pre-trained weights, skipping training")
+            return
         FcClassifier.train_model(self.model, self.X, self.y)
     
     def evaluate_model(self, X_test: pd.DataFrame, y_test: pd.Series):
