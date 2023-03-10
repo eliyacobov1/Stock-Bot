@@ -328,10 +328,9 @@ class DataGenerator:
     def get_training_data(self, from_file: bool = False) -> pd.DataFrame:
         df: pd.DataFrame
         
-        if from_file:
-            if os.path.isfile(DEFUALT_AI_DATA_PATH):
-                df = pd.read_csv(DEFUALT_AI_DATA_PATH)
-                print("loading ai training data from file")
+        if from_file and os.path.isfile(DEFUALT_AI_DATA_PATH):
+            df = pd.read_csv(DEFUALT_AI_DATA_PATH)
+            print("loading ai training data from file")
         else:
             df = retrieve_candles(self.client, self.contract)
             df = parse_stop_loss_and_take_profit(df)
