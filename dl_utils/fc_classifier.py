@@ -35,9 +35,9 @@ class FcClassifier:
         if weights_from_file and os.path.isfile(WEIGHT_FILE_PATH):
             self.model.load_weights(WEIGHT_FILE_PATH)
             self.logger.info("model weights loaded from file")
-            self.weigths_loaded = True
+            self.weights_loaded = True
         else:
-            self.weigths_loaded = False
+            self.weights_loaded = False
         
         if split_test:
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, shuffle=False)
@@ -142,6 +142,8 @@ class FcClassifier:
             self.logger.info(f"testing {i}...")
             self.logger.info(f"X_test shape: {self.X_test.shape}, y_test shape: {self.y_test.shape}")
             accuracy_data = self._dump_predictions(self.X_test, self.y_test)
+            self.logger.info(f"accuracy_data: {accuracy_data}")
+            self.logger.info(f"res_df: {res_df}")
             res_df.loc[len(res_df)] = accuracy_data
             self.logger.info(f"testing {i} done; got {accuracy_data}")
             val_acc = accuracy_data[ACCURACY_COL_INDEX]
@@ -193,8 +195,12 @@ class FcClassifier:
     
     def _dump_predictions(self, X_test: pd.DataFrame, y_test: pd.Series):
         y_pred = self.model.predict(X_test)
-        df_pred = pd.DataFrame(y_test)
+        # create df_pred and in column 'is_win' put y_test
+        df_pred = pd.DataFrame()
+        df_pred['y_test'] = y_test
         df_pred['y_pred'] = y_pred
+        # print df_pred columns
+        self.logger.info(f"df_pred columns: {df_pred.columns}")
         self.logger.info(f"df_pred shape: {df_pred.shape}")
         self.logger.info(f"df_pred: {df_pred}")
         row = []
@@ -203,10 +209,10 @@ class FcClassifier:
             high = (i * 0.05)
             high = round(high, 3)
             try:
-                y_pred_between_low_high_is_win_0 = df_pred[(df_pred['y_pred'] >= low) & (df_pred['y_pred'] <= high) & (df_pred['is_win'] == 0)].shape[0]
+                y_pred_between_low_high_is_win_0 = df_pred[(df_pred['y_pred'] >= low) & (df_pred['y_pred'] <= high) & (df_pred['y_test'] == 0)].shape[0]
                 row.append(round(y_pred_between_low_high_is_win_0,3))
 
-                y_pred_between_low_high_is_win_1 = df_pred[(df_pred['y_pred'] >= low) & (df_pred['y_pred'] <= high) & (df_pred['is_win'] == 1)].shape[0]
+                y_pred_between_low_high_is_win_1 = df_pred[(df_pred['y_pred'] >= low) & (df_pred['y_pred'] <= high) & (df_pred['y_test'] == 1)].shape[0]
                 row.append(round(y_pred_between_low_high_is_win_1,3))
 
                 ratio = y_pred_between_low_high_is_win_0 / (y_pred_between_low_high_is_win_0+ y_pred_between_low_high_is_win_1)
