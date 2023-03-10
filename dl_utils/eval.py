@@ -12,9 +12,9 @@ STATS_FILE_NAME = "df_stats.csv"
 
 
 def train_and_test_period() -> pd.DataFrame:
-    client = StockClientInteractive(config_logger=False)
+    client = StockClientInteractive(run_offline=True)
     model = FcClassifier()
-    data_generator = DataGenerator(client=client)
+    data_generator = DataGenerator(client=client, from_file=True)
     
     pre_scaled_data = data_generator.get_training_data()
     X, y, _ = DataGenerator.pre_process(pre_scaled_data)
@@ -30,7 +30,7 @@ def generate_model_train_n_times(n: int = NUM_MODELS_TO_TRAIN):
     number of times. It will then write to disk the weights of the model with best test
     accuracy
     """
-    client = StockClientInteractive()
+    client = StockClientInteractive(run_offline=True)
     data_generator = DataGenerator(client=client)
     data = data_generator.get_training_data(from_file=True)
     X, y, _ = DataGenerator.pre_process(data)

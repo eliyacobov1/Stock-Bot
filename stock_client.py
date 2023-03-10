@@ -271,7 +271,8 @@ class StockClientYfinance(StockClient):
 
 class StockClientInteractive(StockClient):
     def __init__(self, data_stock: Optional[str] = None, trade_stock: Optional[str] = None, demo=True,
-                 client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None, config_logger: bool = True):
+                 client: Optional[ib_insync.IB] = None, client_id: Optional[int] = None, config_logger: bool = True,
+                 run_offline: bool = False):
         super().__init__()
         
         self._timezone = TimeZones.ISRAEL
@@ -304,8 +305,11 @@ class StockClientInteractive(StockClient):
         logging.getLogger('ib_insync').setLevel(logging.ERROR)  # silence api logger
         self.logger.info("ib_insync client created")
 
-        if not ib.isConnected():
-            ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=client_id if client_id is not None else 1)
+        self._client_id = client_id
+        self._demo = demo
+        self._client = ib
+        if not run_offline:
+            self.connect()
         self.logger.info("Connected to IB")
 
         self.data_stock_name = data_stock
@@ -316,7 +320,6 @@ class StockClientInteractive(StockClient):
             self._trade_stock = ib_insync.Stock(self.trade_stock_name, 'SMART', 'USD')
         if self.trade_stock_name is not None or self.data_stock_name is not None:
             self.logger.info(f"Contract created with data stock [{self.data_stock_name}], trade stock [{self.trade_stock_name}]")
-        self._client = ib
 
         self._take_profit_observers: List[Callable[[float], None]] = []  # will be triggered when take profit is calculated
         self._sell_observer: Optional[Callable[[int], int]] = None  # will be triggered when sell is performed
@@ -326,6 +329,10 @@ class StockClientInteractive(StockClient):
         self.current_trades = {TradeTypes.BUY: [], TradeTypes.SELL: []}
 
         self.demo = demo
+
+    def connect(self):
+        if not self._client.isConnected():
+            self._client.connect('127.0.0.1', 7497 if self._demo else 7496, clientId=self._client_id if self._client_id is not None else 1)
 
     def bind_tp_observer(self, callback: Callable[[float], None]):
         self._take_profit_observers.append(callback)

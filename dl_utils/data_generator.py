@@ -332,6 +332,7 @@ class DataGenerator:
             df = pd.read_csv(DEFUALT_AI_DATA_PATH)
             print("loading ai training data from file")
         else:
+            self.client.connect()
             df = retrieve_candles(self.client, self.contract)
             df = parse_stop_loss_and_take_profit(df)
             df = parse_stop_loss_hit_date(df)
