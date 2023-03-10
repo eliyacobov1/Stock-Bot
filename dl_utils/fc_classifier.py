@@ -26,6 +26,8 @@ class FcClassifier:
     __slots__: List[str] = ['model', 'X', 'y', 'X_test', 'y_test', 'logger']
     
     def __init__(self, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None, split_test: bool = False) -> None:
+        logging.info(f"X shape: {X.shape}, y shape: {y.shape}")
+
         self.init_model(X)
         
         if split_test:
@@ -43,7 +45,7 @@ class FcClassifier:
     def init_model(self, X: Optional[pd.DataFrame] = None):
         from dl_utils.data_generator import OUTPUT_COLS
         n_in: int = X.shape[1] if X is not None else len(OUTPUT_COLS)
-        
+        logging.info(f"n_in: {n_in}")
         # Create a neural network model using the Sequential API
         model = Sequential()
         model.add(Dense(64, activation='relu', input_shape=(n_in,)))
@@ -65,7 +67,7 @@ class FcClassifier:
 
         # Train the model
         print("[+] Training the model...")
-        model.fit(train, pred, epochs=1, batch_size=32, verbose=1)
+        model.fit(train, pred, epochs=50, batch_size=32, verbose=1)
 
     def train_nn_model(self):
         FcClassifier.train_model(self.model, self.X, self.y)
@@ -120,9 +122,13 @@ class FcClassifier:
             model.reset_states()
             
             # Train the model
+            self.logger.info(f"training {i}...")
+            self.logger.info(f"X shape: {self.X.shape}, y shape: {self.y.shape}")
             FcClassifier.train_model(model, self.X, self.y)
             
             # Evaluate the model on the test set and save acc and weights
+            self.logger.info(f"testing {i}...")
+            self.logger.info(f"X_test shape: {self.X_test.shape}, y_test shape: {self.y_test.shape}")
             accuracy_data = self._dump_predictions(self.X_test, self.y_test)
             res_df.loc[len(res_df)] = accuracy_data
             self.logger.info(f"testing {i} done; got {accuracy_data}")
@@ -141,7 +147,6 @@ class FcClassifier:
         best_acc_val = -1
         best_model_number = 0
         for i, (acc_val, weights) in enumerate(weight_dict.values()):
-            import pdb; pdb.set_trace()
             if acc_val > best_acc_val:
                 best_acc_val = acc_val
                 best_model_number = i
@@ -178,6 +183,8 @@ class FcClassifier:
         y_pred = self.model.predict(X_test)
         df_pred = pd.DataFrame(y_test)
         df_pred['y_pred'] = y_pred
+        self.logger.info(f"df_pred shape: {df_pred.shape}")
+        self.logger.info(f"df_pred: {df_pred}")
         row = []
         low = 0
         for i in range(1, 7):
@@ -193,7 +200,7 @@ class FcClassifier:
                 ratio = y_pred_between_low_high_is_win_0 / (y_pred_between_low_high_is_win_0+ y_pred_between_low_high_is_win_1)
                 row.append(round(ratio,3))
             except Exception as e:
-                row.append("Null")
+                row.append(-1)
         return row
 
     @staticmethod
@@ -238,7 +245,7 @@ class FcClassifier:
             
             self.X = dataset.iloc[start_index:start_index+train_set_size, :-1]
             self.y = dataset.iloc[start_index:start_index+train_set_size, -1]
-            self.logger.info(f"training over day {i} with dataset rows [{start_index}, {start_index+train_set_size}]")
+            logging.info(f"training over day {i} with dataset rows [{start_index}, {start_index+train_set_size}]")
 
             # Train the model on the training data according to input period
             self.train_nn_model()
@@ -248,13 +255,13 @@ class FcClassifier:
             test_pred = dataset.iloc[start_index+train_set_size:start_index+train_set_size+num_candles_per_day, -1]
             
             # evaluate the models accuracy over the test set and record the results
-            self.logger.info(f"testing over day {i} with dataset rows [{start_index+train_set_size}, {start_index+train_set_size+num_candles_per_day}]")
+            logging.info(f"testing over day {i} with dataset rows [{start_index+train_set_size}, {start_index+train_set_size+num_candles_per_day}]")
             pred_iter_stats_row = self._dump_predictions(test_set, test_pred)
             res_df.loc[len(res_df)] = pred_iter_stats_row
-            self.logger.info(f"testing done; got {pred_iter_stats_row}")
+            logging.info(f"testing done; got {pred_iter_stats_row}")
             
             # Reset the model weights before training on the next time period
-            self.logger.info("resetting weights")
+            logging.info("resetting weights")
             self.reset_model()
         
         return res_df

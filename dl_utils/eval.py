@@ -41,4 +41,4 @@ if __name__ == '__main__':
     # logging.basicConfig(level=logging.INFO)
     # df: pd.DataFrame = train_and_test_period()
     # df.to_csv(STATS_FILE_NAME, index=False)
-    generate_model_train_n_times(5)
+    generate_model_train_n_times()
