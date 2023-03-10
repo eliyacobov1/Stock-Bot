@@ -304,7 +304,7 @@ class StockClientInteractive(StockClient):
         logging.getLogger('ib_insync').setLevel(logging.ERROR)  # silence api logger
         self.logger.info("ib_insync client created")
 
-        if not ib.isConnected() and False:
+        if not ib.isConnected():
             ib.connect('127.0.0.1', 7497 if demo else 7496, clientId=client_id if client_id is not None else 1)
         self.logger.info("Connected to IB")
 
