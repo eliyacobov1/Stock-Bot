@@ -63,9 +63,6 @@ class FcClassifier:
         model.add(Dropout(0.3))
         model.add(Dense(1, activation='sigmoid'))
 
-        # set an initializer for each of the model's layers in order to make the model converge
-        FcClassifier.initialize_model(model)
-
         # Compile the model
         model.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.001), metrics=['accuracy', 'Precision', 'Recall'])
         self.model = model
@@ -129,9 +126,9 @@ class FcClassifier:
         
         # Define a function to train the model and save the validation accuracy
         def train_and_eval(i):
+            self.logger.info("resetting weights")
+            self.reset_model()
             model = clone_and_build_model(self.model)
-            # Reset the weights of the model
-            model.reset_states()
             
             # Train the model
             self.logger.info(f"training {i}...")
