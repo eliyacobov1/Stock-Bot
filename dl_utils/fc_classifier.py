@@ -11,6 +11,9 @@ from keras.initializers import GlorotUniform, HeNormal
 from keras import backend as K
 from multiprocessing import Pool
 
+from sklearn.preprocessing import StandardScaler
+
+from dl_utils.data_generator import DataGenerator
 from consts import WEIGHT_FILE_PATH
 
 DEFAULT_CANDLE_SIZE = 5
@@ -20,6 +23,7 @@ NUM_MINUTES_IN_HOUR = 60
 STATS_FILE_NAME = "df_stats_model_selection.csv"
 ACCURACY_COL_NAME = "0_0.30_ratio"
 ACCURACY_COL_INDEX = -1
+DEFAULT_NUM_MODELS_TO_TRAIN = 10
 
 
 class FcClassifier:
@@ -27,7 +31,8 @@ class FcClassifier:
     
     def __init__(self, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None, split_test: bool = False,
                  weights_from_file: bool = False) -> None:
-        logging.info(f"X shape: {X.shape}, y shape: {y.shape}")
+        if X is not None and y is not None:
+            logging.info(f"X shape: {X.shape}, y shape: {y.shape}")
 
         self.init_model(X)
         
@@ -64,7 +69,7 @@ class FcClassifier:
         model.add(Dense(1, activation='sigmoid'))
 
         # Compile the model
-        model.compile(loss='binary_crossentropy', optimizer=Adam(lr=0.001), metrics=['accuracy', 'Precision', 'Recall'])
+        model.compile(loss='binary_crossentropy', optimizer=Adam(learning_rate=0.001), metrics=['accuracy', 'Precision', 'Recall'])
         self.model = model
 
     @staticmethod
@@ -120,7 +125,7 @@ class FcClassifier:
     def _num_candles_in_day(candle_size: int):
         return (NUM_TRADING_HOURS*NUM_MINUTES_IN_HOUR)/candle_size
     
-    def train_model_n_times(self, n, write_results: bool = True):
+    def train_model_n_times(self, n = DEFAULT_NUM_MODELS_TO_TRAIN, write_results: bool = True, write_weights: bool = True) -> pd.DataFrame:
         weight_dict = {}
         res_df = FcClassifier._init_acc_stats_df()
         
@@ -164,10 +169,22 @@ class FcClassifier:
                 self.model.set_weights(weights)
 
         logging.info(f"best model {best_model_number} with acc {best_acc_val}")
-        self.model.save_weights(WEIGHT_FILE_PATH)
+        
+        if write_weights:
+            self.model.save_weights(WEIGHT_FILE_PATH)
         
         if write_results:
             res_df.to_csv(STATS_FILE_NAME, index=False)
+
+        return res_df
+    
+    def set_train_params(self, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None):
+        self.X = X
+        self.y = y
+        
+    def set_test_params(self, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None):
+        self.X_test = X
+        self.y_test = y
     
     @staticmethod
     def initialize_model(model: Sequential):
@@ -190,7 +207,7 @@ class FcClassifier:
                 weights *= K.constant(stddev, dtype=K.floatx()) / K.std(weights)
                 layer.set_weights([weights, layer.get_weights()[1]])
     
-    def _dump_predictions(self, X_test: pd.DataFrame, y_test: pd.Series):
+    def _dump_predictions(self, X_test: pd.DataFrame, y_test: pd.Series) -> List:
         y_pred = self.model.predict(X_test)
         # create df_pred and in column 'is_win' put y_test
         df_pred = pd.DataFrame()
@@ -239,7 +256,7 @@ class FcClassifier:
             model (tf.keras.Sequential): The TensorFlow sequential model to train and test.
             dataset (np.array): The dataset to use for training and testing.
         """
-        num_candles_per_day: int = FcClassifier._num_candles_in_day(candle_size)
+        num_candles_per_day = int(FcClassifier._num_candles_in_day(candle_size))
         train_set_size = num_candles_per_day * period
         num_training_samples = dataset.shape[0]
         num_train_iterations = int((num_training_samples - train_set_size) / num_candles_per_day)
@@ -257,26 +274,31 @@ class FcClassifier:
             if start_index+train_set_size+num_candles_per_day > len(dataset):
                 logging.error(f"exceeding dataset indices; existing main loop")
                 break
-            
-            self.X = dataset.iloc[start_index:start_index+train_set_size, :-1]
-            self.y = dataset.iloc[start_index:start_index+train_set_size, -1]
-            logging.info(f"training over day {i} with dataset rows [{start_index}, {start_index+train_set_size}]")
-
-            # Train the model on the training data according to input period
-            self.train_nn_model()
+        
+            self.logger.info(f"training over day {i} with dataset rows [{start_index}, {start_index+train_set_size}]")
+            curr_iter_data = dataset.iloc[start_index:start_index+train_set_size, :]
+            self.logger.info("scaling training set...")
+            train_set, train_pred, scaler = DataGenerator.pre_process(curr_iter_data)
             
             # set test set to be the following trading day candle data
             test_set = dataset.iloc[start_index+train_set_size:start_index+train_set_size+num_candles_per_day, :-1]
+            test_set_scaled = scaler.transform(test_set)
             test_pred = dataset.iloc[start_index+train_set_size:start_index+train_set_size+num_candles_per_day, -1]
             
-            # evaluate the models accuracy over the test set and record the results
-            logging.info(f"testing over day {i} with dataset rows [{start_index+train_set_size}, {start_index+train_set_size+num_candles_per_day}]")
-            pred_iter_stats_row = self._dump_predictions(test_set, test_pred)
-            res_df.loc[len(res_df)] = pred_iter_stats_row
-            logging.info(f"testing done; got {pred_iter_stats_row}")
+            self.set_train_params(train_set, train_pred)
+            self.set_test_params(test_set_scaled, test_pred)
+            
+            self.logger.info(f"testing over day {i} with dataset rows [{start_index+train_set_size}, {start_index+train_set_size+num_candles_per_day}]")
+            self.logger.info(f"\ncalling model selection...\n")
+            curr_iter_model_selection_data = self.train_model_n_times(write_weights=False, write_results=False)
+            self.logger.info(f"\nfinished model selection...\n")
+            
+            # appends accuracy results of current iteration to results dataframe
+            res_df.loc[len(res_df)] = [i for col in res_df.columns]  # this row indicates the satrt of the i'th iteration records
+            res_df = pd.concat([res_df, curr_iter_model_selection_data], axis=0)
             
             # Reset the model weights before training on the next time period
-            logging.info("resetting weights")
+            self.logger.info("resetting weights")
             self.reset_model()
         
         return res_df
