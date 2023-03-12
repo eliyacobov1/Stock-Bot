@@ -15,7 +15,7 @@ def train_and_test_period() -> pd.DataFrame:
     model = FcClassifier()
     data_generator = DataGenerator(client=client)
     
-    data = data_generator.get_training_data(from_file=False)
+    data = data_generator.get_training_data(from_file=True)
     res_df = model.train_test_model_over_time_period(period=DEFAULT_PERIOD, dataset=data)
     
     return res_df
