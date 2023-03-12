@@ -6,7 +6,7 @@ from dl_utils.data_generator import DataGenerator
 from dl_utils.fc_classifier import FcClassifier, DEFAULT_NUM_MODELS_TO_TRAIN
 
 
-DEFAULT_PERIOD = 90
+DEFAULT_PERIOD = 30
 STATS_FILE_NAME = "df_stats.csv"
 
 
@@ -15,7 +15,7 @@ def train_and_test_period() -> pd.DataFrame:
     model = FcClassifier()
     data_generator = DataGenerator(client=client)
     
-    data = data_generator.get_training_data(from_file=True)
+    data = data_generator.get_training_data(from_file=False)
     res_df = model.train_test_model_over_time_period(period=DEFAULT_PERIOD, dataset=data)
     
     return res_df
@@ -40,7 +40,7 @@ def generate_model_train_n_times(n: int = DEFAULT_NUM_MODELS_TO_TRAIN):
 
 
 if __name__ == '__main__':
-    # logging.basicConfig(level=logging.INFO)
-    # df: pd.DataFrame = train_and_test_period()
-    # df.to_csv(STATS_FILE_NAME, index=False)
-    generate_model_train_n_times()
+    logging.basicConfig(level=logging.INFO)
+    df: pd.DataFrame = train_and_test_period()
+    df.to_csv(STATS_FILE_NAME, index=False)
+    # generate_model_train_n_times()

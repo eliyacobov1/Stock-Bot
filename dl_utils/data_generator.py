@@ -13,7 +13,7 @@ from stock_client import StockClient
 from consts import ATR_MUL, ATR_PERIOD, TAKE_PROFIT_MULTIPLIER as TAKE_PROFIT, DEFUALT_AI_DATA_PATH
 
 # parameters for historical data fetching
-DURATION = '6 M'
+DURATION = '11 M'
 CANDLE_SIZE = 5
 BAR_SIZE = "5 mins"
 STOCK_NAME = 'SOXL'
